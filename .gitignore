@@ -1,0 +1,10 @@
+*.pyc
+*.jpg
+*.png
+*.avi
+*.mp4
+*.MOV
+*.h5
+*.weights
+*checkpoints*
+*logs*

@@ -1,0 +1,12 @@
+{
+    "data_folder": "/home/peng/data/rolo_data/",
+
+    "BATCH_SIZE":   4,
+    "TIME_STEP":    5,
+    "INPUT_SIZE":   173060,
+    "CELL_SIZE":    100,
+
+    "test_video_folder": "/home/peng/data/rolo_data/images/train/person/", 
+
+    "rolo_pretrained_weight": "checkpoints/rolo_overfitting-04-0.00.h5"
+}
