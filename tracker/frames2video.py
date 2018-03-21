@@ -28,13 +28,15 @@ argparser = argparse.ArgumentParser(
 argparser.add_argument(
     '-d',
     default='output/',
-    metavar='DIRECTORY',
+    metavar='DIR',
+    dest='dir',
     help='path to the directory of video frames')
 
 argparser.add_argument(
     '-o',
     default='output',
     metavar='OUTPUT',
+    dest='output',
     help='output video name, default save to .avi format')
 
 def _main_(args):
