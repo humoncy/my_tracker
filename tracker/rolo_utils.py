@@ -58,5 +58,5 @@ def check_data(data_dir, annot_path):
 
 if __name__ == '__main__':
     data_dir = '/home/peng/data/rolo_data/images/train/person/'
-    annot_path = '/home/peng/data/rolo_data/detected/train/person.txt'
+    annot_path = '/home/peng/data/rolo_data/annotations/train/person.txt'
     check_data(data_dir, annot_path)

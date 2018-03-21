@@ -27,12 +27,25 @@ argparser = argparse.ArgumentParser(
 
 argparser.add_argument(
     '-d',
-    '--dir',
-    help='path to my video frames')
+    default='output/',
+    metavar='DIRECTORY',
+    help='path to the directory of video frames')
+
+argparser.add_argument(
+    '-o',
+    default='output',
+    metavar='OUTPUT',
+    help='output video name, default save to .avi format')
 
 def _main_(args):
     video_frames_path = args.dir
-    print("Video path:", video_frames_path)
+    output_name = args.output
+    if output_name[-4:] == ".avi":
+        1
+    else:
+        output_name = args.output + ".avi"
+
+    print("Video path:", os.path.abspath(os.path.join(os.path.dirname(__file__), video_frames_path)))
     if not os.path.exists(video_frames_path):
         print("Invalid video path, please modify the input or the script for a bit.")
         exit(0)
@@ -46,7 +59,7 @@ def _main_(args):
     FPS = 30
 
     # Define the codec and create VideoWriter object.The output is stored in 'outpy.avi' file.
-    out = cv2.VideoWriter('output.avi', cv2.VideoWriter_fourcc('M','J','P','G'), FPS, (frame_width, frame_height))
+    out = cv2.VideoWriter(output_name, cv2.VideoWriter_fourcc('M','J','P','G'), FPS, (frame_width, frame_height))
 
     for image_path in image_paths:
         image = cv2.imread(image_path)

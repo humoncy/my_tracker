@@ -276,12 +276,12 @@ class YOLO(object):
         input_image = image[:,:,::-1]  # rgb to bgr
         input_image = np.expand_dims(input_image, 0)
         dummy_array = dummy_array = np.zeros((1,1,1,1,self.max_box_per_image,4))
-        print(input_image.shape)
-        print(dummy_array.shape)
+        # print(input_image.shape)
+        # print(dummy_array.shape)
 
         netout = self.model.predict([input_image, dummy_array])[0]
 
-        print(netout.shape)
+        print("YOLO network output shape:", netout.shape)
 
         boxes  = self.decode_netout(netout)
 
@@ -290,7 +290,7 @@ class YOLO(object):
         get_darknet_output = K.function([self.model.layers[0].input, K.learning_phase()],
                                         [self.model.layers[1].get_output_at(-1)])
         layer_output = get_darknet_output([input_image, 0])[0]
-        print(layer_output.shape)
+        # print(layer_output.shape)
 
         return boxes, layer_output
 

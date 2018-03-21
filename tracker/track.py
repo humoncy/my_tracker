@@ -37,20 +37,20 @@ def _main_(args):
 
     # Modify the config properly before tracking!!
 
-    batch_size = rolo_config["BATCH_SIZE"]
+    batch_size = rolo_config["test"]["BATCH_SIZE"]
     time_step = rolo_config["TIME_STEP"]
     input_size = rolo_config["INPUT_SIZE"]
     cell_size = rolo_config["CELL_SIZE"]
 
     rolo = tracker.ROLO(
-        batch_size = batch_size,
+        batch_size = batch_size,  # 1 when testing, input one frame(video snippet) at a time
         time_step  = time_step,
         input_size = input_size,        
         cell_size  = cell_size,
         yolo_config = yolo_config,
         yolo_weights_path = yolo_weights_path
     )
-    rolo.load_weights(rolo_config["rolo_pretrained_weight"])    
+    rolo.load_weights(rolo_config["test"]["weights"])    
     rolo.track(rolo_config["test_video_folder"])    
 
 

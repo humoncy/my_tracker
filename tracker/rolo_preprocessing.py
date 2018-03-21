@@ -135,16 +135,26 @@ class BatchGenerator(Sequence):
         # 2. slice the video frames into batches and select one batch([l_bound, r_bound])
         selected_video_num = np.random.random_integers(0, len(self.annotations)-1)
         num_frames = sum(1 for line in open(self.annotations[selected_video_num]))
-        l_bound = (idx % num_frames) * self.config['BATCH_SIZE']
-        r_bound = (idx % num_frames + 1) * self.config['BATCH_SIZE']
+        num_batch = num_frames / self.config['BATCH_SIZE']
+        l_bound = (idx % num_batch) * self.config['BATCH_SIZE']
+        r_bound = (idx % num_batch + 1) * self.config['BATCH_SIZE']
         if r_bound > num_frames:
             r_bound = num_frames
             l_bound = r_bound - self.config['BATCH_SIZE']
             if l_bound < 0:
                 raise Exception("Number of frames in every video must be more than batch size ( > %d )" % self.config['BATCH_SIZE'])
+        if (l_bound + self.config['BATCH_SIZE']-1 + self.config['TIME_STEP']-1) > num_frames - 1:
+            l_bound = num_frames-1 - (self.config['BATCH_SIZE']-1 + self.config['TIME_STEP']-1)
+            r_bound = l_bound + self.config['BATCH_SIZE']
 
-        x_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], self.config['INPUT_SIZE']))
-        y_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], 4))
+        if isinstance(self.config['INPUT_SIZE'], list):
+            x_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], 
+                                self.config['INPUT_SIZE'][0], self.config['INPUT_SIZE'][1], self.config['INPUT_SIZE'][2]))
+            bbox_batch = np.zeros((self.config['BATCH_SIZE'], 4))
+            y_batch = np.zeros((self.config['BATCH_SIZE'], 4))
+        else:
+            x_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], self.config['INPUT_SIZE']))
+            y_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], 4))
 
         detections = np.load(self.detected_label_namelist[selected_video_num])
         features = np.load(self.features_namelist[selected_video_num])
@@ -160,28 +170,32 @@ class BatchGenerator(Sequence):
         for i in range(l_bound,r_bound):
             # Every instance in every batch contains #time_step images
             for j in range(self.config['TIME_STEP']):
-                detection = detections[i, ...]
-                feature = features[i, ...]
-                label = labels[i, ...]
+                # detection = detections[i+j, ...]
+                feature = features[i+j, ...]
+                # label = labels[i+j, ...]
                 # print("Detection shape:", detection.shape)
                 # print("Feature shape:", feature.shape)
-                inputs = np.concatenate((feature.flatten(), detection))
                 # print("Detection:", detection)
+                # inputs = detection
+                # inputs = np.concatenate((feature.flatten(), detection))
+                inputs = feature
                 # print("Input shape:", inputs.shape)
 
-                # x_batch[instance_count, j, :] = detection
                 x_batch[instance_count, j, :] = inputs
-                # x_batch[instance_count, j, :] = np.ones(self.config['INPUT_SIZE']) * 10000
 
-                y_batch[instance_count, j, :] = label
+                # y_batch[instance_count, j, :] = label
+                if j == self.config['TIME_STEP'] - 1:
+                    detection = detections[i+j, ...]
+                    bbox_batch[instance_count, :] = detection
+                    label = labels[i+j, ...]                
+                    y_batch[instance_count, :] = label
                 # print("Label:", label)
-                # y_batch[instance_count, j, :] = np.ones(4) * 10000
 
             instance_count += 1
 
         # print ' new batch created', idx
         
-        return x_batch, y_batch
+        return [x_batch, bbox_batch], y_batch
     
     def on_epoch_end(self):
         if self.shuffle: np.random.shuffle(self.images)

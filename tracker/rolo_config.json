@@ -3,10 +3,20 @@
 
     "BATCH_SIZE":   4,
     "TIME_STEP":    5,
-    "INPUT_SIZE":   173060,
-    "CELL_SIZE":    100,
+    "INPUT_SIZE":   [13,13,1024],
+    "CELL_SIZE":    200,
 
     "test_video_folder": "/home/peng/data/rolo_data/images/train/person/", 
 
-    "rolo_pretrained_weight": "checkpoints/rolo_overfitting-04-0.00.h5"
+    "rolo_pretrained_weight": "checkpoints/rolo_overfitting_xywhonly-05-0.0244.h5",
+
+    "train": {
+        "train_times":          10,
+        "learning_rate":        1e-4,
+        "saved_weights_name":   "feature_only.h5"
+    },
+    "test": {
+        "BATCH_SIZE":   1,
+        "weights":  "checkpoints/feature_only-18-0.0000.h5"
+    }
 }
