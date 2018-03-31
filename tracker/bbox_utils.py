@@ -32,9 +32,12 @@ def choose_best_box(boxes, last_box):
     """ Choose the box that has highest IOU with last detected box
     """
     if len(boxes) != 1:
-        print(len(boxes), 'boxes are found (more than 1 box founded)')
+        print('{} boxes are found (not only 1 box founded or no boxes founded)'.format(len(boxes)))
 
-    best_box = boxes[0]
+    if len(boxes) == 0:
+        return last_box
+    else:
+        best_box = boxes[0]
 
     max_iou = 0.0
     for box in boxes:

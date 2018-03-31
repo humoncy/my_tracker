@@ -4,13 +4,22 @@ import cv2
 import glob
 import numpy as np
 np.random.seed(41)
-from rolo_utils import sort_nicely
+from rolo_utils import sort_nicely, isNAN
 from keras.utils import Sequence
 
 
 def data_preparation(data, FOR_YOLO=False):
     """ Return the paths to annotation files and image folders
-
+        Arguments:
+            data: config of the following form:
+            {
+                'image_folder': data_folder + 'images/train/',
+                'annot_folder': data_folder + 'annotations/train/',
+                'detected_folder': data_folder + 'detected/train/',
+                'features_folder': data_folder + 'features/train/',
+                'detected_images_folder': data_folder + 'detected_images/train/'
+            }
+            FOR_YOLO: need detected results or not
         Return:
             video_folders: list of video folder paths
             video_annotations: list of annotation file paths
@@ -138,15 +147,42 @@ class BatchGenerator(Sequence):
         num_batch = num_frames / self.config['BATCH_SIZE']
         l_bound = (idx % num_batch) * self.config['BATCH_SIZE']
         r_bound = (idx % num_batch + 1) * self.config['BATCH_SIZE']
-        if r_bound > num_frames:
-            r_bound = num_frames
+        if r_bound - 1 + self.config['TIME_STEP'] > num_frames:
+            r_bound = num_frames - self.config['TIME_STEP'] + 1
             l_bound = r_bound - self.config['BATCH_SIZE']
             if l_bound < 0:
                 raise Exception("Number of frames in every video must be more than batch size ( > %d )" % self.config['BATCH_SIZE'])
         if (l_bound + self.config['BATCH_SIZE']-1 + self.config['TIME_STEP']-1) > num_frames - 1:
             l_bound = num_frames-1 - (self.config['BATCH_SIZE']-1 + self.config['TIME_STEP']-1)
             r_bound = l_bound + self.config['BATCH_SIZE']
+        
+        labels = np.loadtxt(self.annotations[selected_video_num], delimiter=',')
 
+        while isNAN(labels[l_bound:(r_bound - 1 + self.config['TIME_STEP']), ...]):
+            print("\nGround truth is Nan, choose another batch")
+            l_bound = (np.random.random_integers(0, 1000) % num_batch) * self.config['BATCH_SIZE']
+            r_bound = l_bound + self.config['BATCH_SIZE']
+            if r_bound - 1 + self.config['TIME_STEP'] > num_frames:
+                r_bound = num_frames - self.config['TIME_STEP'] + 1
+                l_bound = r_bound - self.config['BATCH_SIZE']
+                if l_bound < 0:
+                    raise Exception("Number of frames in every video must be more than batch size ( > %d )" % self.config['BATCH_SIZE'])
+            print("l_bound:", l_bound)
+            print("r_bound:", r_bound)
+            print("#frame:", num_frames)
+            print('#batch:', num_batch)
+        
+
+        detections = np.load(self.detected_label_namelist[selected_video_num])
+        features = np.load(self.features_namelist[selected_video_num])
+
+        # TODO
+        labels[:, 0] = (labels[:, 0] + labels[:, 2] / 2.0) / 1280
+        labels[:, 1] = (labels[:, 1] + labels[:, 3] / 2.0) / 720
+        labels[:, 2] = labels[:, 2] / 1280
+        labels[:, 3] = labels[:, 3] / 720
+
+        # Make input data
         if isinstance(self.config['INPUT_SIZE'], list):
             x_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], 
                                 self.config['INPUT_SIZE'][0], self.config['INPUT_SIZE'][1], self.config['INPUT_SIZE'][2]))
@@ -155,16 +191,6 @@ class BatchGenerator(Sequence):
         else:
             x_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], self.config['INPUT_SIZE']))
             y_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], 4))
-
-        detections = np.load(self.detected_label_namelist[selected_video_num])
-        features = np.load(self.features_namelist[selected_video_num])
-        labels = np.loadtxt(self.annotations[selected_video_num], delimiter=',')
-        
-        # TODO
-        labels[:, 0] = (labels[:, 0] + labels[:, 2]/2) / 1280
-        labels[:, 1] = (labels[:, 1] + labels[:, 3]/2) / 720
-        labels[:, 2] = labels[:, 2] / 1280
-        labels[:, 3] = labels[:, 3] / 720
 
         instance_count = 0        
         for i in range(l_bound,r_bound):
@@ -186,16 +212,47 @@ class BatchGenerator(Sequence):
                 # y_batch[instance_count, j, :] = label
                 if j == self.config['TIME_STEP'] - 1:
                     detection = detections[i+j, ...]
+                    if isNAN(detection):
+                        detection = detections[0, ...]
+                        for value in detection:
+                            tmp = value + np.random_normal(0, 0.5)
+                            while tmp < 0 or tmp > 1:
+                                tmp = value + np.random_normal(0, 0.5)
+                            value = tmp
+                        print(detection)
+                        
                     bbox_batch[instance_count, :] = detection
-                    label = labels[i+j, ...]                
+                    label = labels[i+j, ...]
+                    if isNAN(label):
+                        raise ValueError("NAN~~~~~WTFFFFFFFFFFFFFFFFFFF!!!!")
+                    for value in label:
+                        if value < 0:
+                            raise ValueError("WTFFFFFFFFFFFFFFFFFFF!!!!")
+                    # print(label)
                     y_batch[instance_count, :] = label
                 # print("Label:", label)
 
             instance_count += 1
 
-        # print ' new batch created', idx
+        if isNAN(x_batch):
+            print("\n???????????????????????/???????????")
+            print(x_batch)
+            print("???????????????????????????????????")
+            raise ValueError("X batch NAN!!!!!!!!!!!!!1")
         
-        return [x_batch, bbox_batch], y_batch
+        if isNAN(bbox_batch):
+            print("\n???????????????????????/???????????")
+            print(bbox_batch)
+            print("???????????????????????????????????")
+            raise ValueError("BBOX batch NAN!!!!!!!!!!!!!1")
+
+        # print ' new batch created', idx
+        # print(bbox_batch)
+        # print("\n???????????????????????/???????????")
+        # print(x_batch)
+        # print("???????????????????????????????????")
+
+        return [x_batch, bbox_batch], y_batch       
     
     def on_epoch_end(self):
         if self.shuffle: np.random.shuffle(self.images)

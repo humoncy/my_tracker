@@ -44,12 +44,12 @@ The configuration file is a json file and looks like this:
 import argparse
 import os
 import numpy as np
-from preprocessing import parse_annotation
+from preprocessing_aerial import aerial_parse_annotation
 from frontend import YOLO
 import json
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 argparser = argparse.ArgumentParser(
     description='Train and validate YOLO_v2 model on any dataset')
@@ -71,28 +71,14 @@ def _main_(args):
     ###############################
 
     # parse annotations of the training set
-    train_imgs, train_labels = parse_annotation(config['train']['train_annot_folder'], 
-                                                config['train']['train_image_folder'], 
-                                                config['model']['labels'])
+    train_imgs, train_labels = aerial_parse_annotation(config['train']['train_image_name_list'], 
+                                                       config['model']['labels'])
 
-    print(type(train_imgs))
-    print(len(train_imgs))
-    print(type(train_imgs[0]))
-    print(train_labels)
-    exit()
 
-    # parse annotations of the validation set, if any, otherwise split the training set
-    if os.path.exists(config['valid']['valid_annot_folder']):
-        valid_imgs, valid_labels = parse_annotation(config['valid']['valid_annot_folder'], 
-                                                    config['valid']['valid_image_folder'], 
-                                                    config['model']['labels'])
-    else:
-        train_valid_split = int(0.8*len(train_imgs))
-        np.random.shuffle(train_imgs)
-
-        valid_imgs = train_imgs[train_valid_split:]
-        train_imgs = train_imgs[:train_valid_split]
-
+    # parse annotations of the validation set.
+    valid_imgs, valid_labels = aerial_parse_annotation(config['valid']['valid_image_name_list'],
+                                                       config['model']['labels'])
+    
     if len(config['model']['labels']) > 0:
         overlap_labels = set(config['model']['labels']).intersection(set(train_labels.keys()))
 

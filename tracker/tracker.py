@@ -5,10 +5,12 @@ from tqdm import tqdm
 import json
 import glob
 import re
+import time
+import math
 
 from bbox_utils import *
 from rolo_preprocessing import BatchGenerator, data_preparation
-from rolo_utils import sort_nicely
+from rolo_utils import sort_nicely, isNAN
 
 import os.path
 from os.path import basename, splitext
@@ -26,7 +28,7 @@ from keras.optimizers import SGD, Adam, RMSprop
 from keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
 argparser = argparse.ArgumentParser(
     description='Recurrent YOLO')
@@ -60,17 +62,15 @@ argparser.add_argument(
 
 
 class ROLO(object):
-    def __init__(self, 
-        batch_size, 
-        time_step, 
-        input_size, 
-        cell_size, 
+    def __init__(self,
+        mode,
+        rolo_config,
         yolo_config, 
         yolo_weights_path):
 
-        self.batch_size = batch_size
-        self.time_step = time_step
-        self.input_size = input_size
+        self.batch_size = rolo_config[mode]['BATCH_SIZE']
+        self.time_step = rolo_config[mode]['TIME_STEP']
+        self.input_size = rolo_config['INPUT_SIZE']
         self.yolo_config = yolo_config
         self.yolo_weights_path = yolo_weights_path
 
@@ -97,12 +97,14 @@ class ROLO(object):
         x = ConvLSTM2D(filters=32,
                        kernel_size=(3,3),
                        padding='same',
-                       return_sequences=False)(x)
+                       return_sequences=False,
+                       stateful=rolo_config[mode]['lstm_stateful'])(x)
         x = Flatten()(x)
         x = Dense(4096)(x)
 
         bbox_inputs = Input(batch_shape=(self.batch_size, 4))
         x = concatenate([x, bbox_inputs])
+        # x = CuDNNLSTM(units=rolo_config["CELL_SIZE"], return_sequences=False)(inputs)
         output = Dense(4)(x)
 
         # self.model = Model(inputs, output)
@@ -139,11 +141,15 @@ class ROLO(object):
         yolo.load_weights(self.yolo_weights_path)
 
         for vid, video_folder in enumerate(video_folders_list):
-            with open(annotations_list[vid], 'r') as annot_file:
-                first_box_unnormailzed = parse_label(annot_file.readline())
-
+            num_frames = sum(1 for line in open(annotations_list[vid], 'r'))
             image_path_list = sorted(glob.glob(video_folder + "/*"))
             sort_nicely(image_path_list)
+
+            if num_frames != len(image_path_list):
+                raise IOError("Number of frames in {} does not match annotations.".format(basename(video_folder)))
+
+            with open(annotations_list[vid], 'r') as annot_file:
+                first_box_unnormailzed = parse_label(annot_file.readline())
 
             first_image = cv2.imread(image_path_list[0])
             first_box = normalize_box(first_image.shape, first_box_unnormailzed)
@@ -161,6 +167,7 @@ class ROLO(object):
             features_path = os.path.join(data[mode]['features_folder'], basename(video_folder))
             
             for i, image_path in enumerate(image_path_list):
+                print("============ Detecting {} video, {} frame ===============".format(basename(video_folder), basename(image_path)))
                 image = cv2.imread(image_path)
                 if image is None:
                     print('Cannot find', image_path)
@@ -204,18 +211,44 @@ class ROLO(object):
                 # np.savetxt(detected_label_path + '.txt', detected_boxes, delimiter=',')
             else:
                 print("-----Debugging-----")
-                print("Write txt label file.")
-                detected_boxes[:, 0] *= first_image.shape[1]
-                detected_boxes[:, 1] *= first_image.shape[0]
-                detected_boxes[:, 2] *= first_image.shape[1]
-                detected_boxes[:, 3] *= first_image.shape[0]
-                detected_boxes = np.round(detected_boxes)
-                np.savetxt(detected_label_path + '.txt', detected_boxes.astype(int), fmt='%i', delimiter=',')
+                # print("Write txt label file.")
+                # detected_boxes[:, 0] *= first_image.shape[1]
+                # detected_boxes[:, 1] *= first_image.shape[0]
+                # detected_boxes[:, 2] *= first_image.shape[1]
+                # detected_boxes[:, 3] *= first_image.shape[0]
+                # detected_boxes = np.round(detected_boxes)
+                # np.savetxt(detected_label_path + '.txt', detected_boxes.astype(int), fmt='%i', delimiter=',')
 
             print("========================== Save feature map =================================")
             features = np.array(features)
             np.save(features_path + '.npy', features)
 
+    def custom_loss(self, y_true, y_pred):
+        y_true *= 50
+        y_pred *= 50
+
+        # clip_min_value = tf.constant([1e-10, 1e-10])
+        # min_tensor = tf.zeros((self.batch_size,2))
+        # min_tensor = tf.add(min_tensor, clip_min_value)
+
+        pred_box_xy = y_pred[..., :2]
+        # pred_box_wh = tf.sqrt(tf.clip_by_value(y_pred[..., 2:], min_tensor, y_pred[..., 2:]))
+        pred_box_wh = y_pred[..., 2:]
+
+        true_box_xy = y_true[..., :2]
+        # true_box_wh = tf.sqrt(tf.clip_by_value(y_true[..., 2:], min_tensor, y_true[..., 2:]))
+        true_box_wh = y_true[..., 2:]
+
+        loss_xy = tf.reduce_mean(tf.square(pred_box_xy - true_box_xy))
+        loss_wh = tf.reduce_mean(tf.square(pred_box_wh - true_box_wh))
+
+        loss = loss_xy + loss_wh
+
+        if DEBUG:
+            loss = tf.Print(loss, [loss_xy], message='Loss XY \t', summarize=1000)
+            loss = tf.Print(loss, [loss_wh], message='Loss WH \t', summarize=1000)
+
+        return loss
 
     def train(self, 
               data_folder,
@@ -256,7 +289,8 @@ class ROLO(object):
         ############################################
 
         optimizer = Adam(lr=learning_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
-        self.model.compile(loss='mean_squared_error', optimizer=optimizer)
+        self.model.compile(loss=self.custom_loss, optimizer=optimizer)
+        # self.model.compile(loss='mse', optimizer=optimizer)
 
         ############################################
         # Make train and validation generators
@@ -309,7 +343,8 @@ class ROLO(object):
                                  validation_data  = valid_batch,
                                  validation_steps = len(valid_batch) * valid_times,
                                  callbacks        = [early_stop, checkpoint, tensorboard],  #TODO
-                                 workers          = 1   #TODO
+                                 workers          = 3,   #TODO
+                                 use_multiprocessing = True     #TODO
                                 )
     
 
@@ -329,7 +364,7 @@ class ROLO(object):
         return test_batch
 
 
-    def track(self, video_folder_path):
+    def track(self, video_folder_path, initial_box):
         yolo = YOLO(architecture        = self.yolo_config['model']['architecture'],
                     input_size          = self.yolo_config['model']['input_size'], 
                     labels              = self.yolo_config['model']['labels'], 
@@ -339,25 +374,33 @@ class ROLO(object):
         yolo.load_weights(self.yolo_weights_path)
 
         frame_path_list = sorted(glob.glob((video_folder_path + "*")))
+        if len(frame_path_list) == 0:
+            raise IOError("Found {} frames".format(len(frame_path_list)))
 
         inputs_list = []
 
-        initail_box = [810,165,50,111]  # x_min, y_min, w, h
-        initail_box = xywh_xymin_to_xycenter(initail_box)  # x_center, y_center, w, h
+        initial_box = xywh_xymin_to_xycenter(initial_box)  # x_center, y_center, w, h
+
+        tracking_time = 0.0
+
         for i, frame_path in enumerate(frame_path_list):
             print("================ {}th frame ==================".format(i))
             frame = cv2.imread(frame_path)
             if i == 0:
-                frame = draw_box(frame, initail_box)
+                frame = draw_box(frame, initial_box)
                 boxes, feature = yolo.predict_for_rolo(frame)
-                normalized_initial_box = normalize_box(frame.shape, initail_box)
+                normalized_initial_box = normalize_box(frame.shape, initial_box)
                 # inputs = np.concatenate((feature.flatten(), normalized_initial_box))
                 inputs = feature
                 # inputs = normalized_initial_box
                 inputs_list.append(inputs)
                 last_box = BoundBox(normalized_initial_box[0], normalized_initial_box[1], normalized_initial_box[2] ,normalized_initial_box[3])
             else:
+
+
                 boxes, feature = yolo.predict_for_rolo(frame)
+
+                
                 chosen_box = choose_best_box(boxes, last_box)
                 last_box = chosen_box
                 chosen_box.print_box()
@@ -372,16 +415,19 @@ class ROLO(object):
                 feature_input = self.get_test_batch(inputs_list[l_bound:i+1])
 
                 bbox_input = np.array([[chosen_box.x, chosen_box.y, chosen_box.w, chosen_box.h]])
-                print(bbox_input.shape)
 
+                start_time = time.time()
                 # Prediction by ROLO
                 # bbox = self.model.predict([feature_input, bbox_input])[0, self.time_step - 1]
                 bbox = self.model.predict([feature_input, bbox_input])[0, ...]
-                print(bbox.shape)
-                print("Tracked box (normalized):", bbox)
+                end_time = time.time()
+                print("ROLO predict time: {} sec per image.".format(end_time-start_time))
+
+                # end_time = time.time()
+
                 # Draw detected box by YOLO
                 detected_box = denormalize_box(frame.shape, chosen_box)
-                # frame = draw_box(frame, detected_box, color=(255,0,0))
+                frame = draw_box(frame, detected_box, color=(255,0,0))
                 print("Detected box:", detected_box)
 
                 # Denormalize box
@@ -391,6 +437,9 @@ class ROLO(object):
                 bbox[3] *= frame.shape[0]
                 # Draw Tracked box by ROLO
                 frame = draw_box(frame, bbox)
+                print("Tracked box: ", bbox)
+
+                tracking_time += (end_time - start_time)
 
             print("==============================================")
             
@@ -398,51 +447,47 @@ class ROLO(object):
             # cv2.imshow('video', frame)
             # cv2.waitKey(0)
             cv2.imwrite('output/' + str(i) + '.jpg', frame)
+        
+        print("Tracking speed: {:.3f} FPS".format((len(frame_path_list) - 1) / tracking_time))
 
 
 def _main_(args):
- 
-    yolo_config_path  = args.conf
-    yolo_weights_path = args.weights
-    rolo_config_path = "rolo_config.json"
-    print("ROLO config file:", rolo_config_path)
 
     global DEBUG
     DEBUG = args.debug
+ 
+    rolo_config_path = "rolo_config.json"
+    print("ROLO config file:", rolo_config_path)
+    
+    ########################################################################################################
+    # Modify the config properly before training!!
+    with open(rolo_config_path) as config_buffer:
+        rolo_config = json.load(config_buffer)
+    ########################################################################################################
+
+    yolo_config_path  = rolo_config["yolo_config"]
+    yolo_weights_path = rolo_config["yolo_weights"]
 
     with open(yolo_config_path) as config_buffer:    
         yolo_config = json.load(config_buffer)
 
-    ########################################################################################################
-    # Modify the config properly before training!!
-    with open(rolo_config_path) as config_buffer:
-        config = json.load(config_buffer)
-    ########################################################################################################
-
-    batch_size = config["BATCH_SIZE"]
-    time_step = config["TIME_STEP"]
-    input_size = config["INPUT_SIZE"]
-    cell_size = config["CELL_SIZE"]
-
     rolo = ROLO(
-        batch_size = batch_size,
-        time_step  = time_step,
-        input_size = input_size,        
-        cell_size  = cell_size,
+        mode = 'train',
+        rolo_config = rolo_config,
         yolo_config = yolo_config,
         yolo_weights_path = yolo_weights_path
     )
 
-    rolo.train(
-        data_folder=config['data_folder'],
-        train_times=1,
-        valid_times=1,
-        nb_epoch=100,
-        learning_rate=1e-4,
-        saved_weights_name=config["train"]["saved_weights_name"]
-    )
+    rolo.load_weights(rolo_config["rolo_pretrained_weight"])
 
-    # rolo.load_weights(config["rolo_pretrained_weight"])
+    rolo.train(
+        data_folder=rolo_config['data_folder'],
+        train_times=rolo_config["train"]["train_times"],
+        valid_times=rolo_config["train"]["valid_times"],
+        nb_epoch=rolo_config["train"]["nb_epoch"],
+        learning_rate=rolo_config["train"]["learning_rate"],
+        saved_weights_name=rolo_config["train"]["saved_weights_name"]
+    )
 
     # rolo.track(config["test_video_folder"])
 

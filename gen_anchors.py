@@ -3,6 +3,8 @@ import argparse
 import numpy as np
 
 from preprocessing import parse_annotation
+from preprocessing_aerial import aerial_parse_annotation
+from tracker.rolo_preprocessing import data_preparation
 import json
 
 argparser = argparse.ArgumentParser()
@@ -107,9 +109,12 @@ def main(argv):
     with open(config_path) as config_buffer:
         config = json.loads(config_buffer.read())
 
-    train_imgs, train_labels = parse_annotation(config['train']['train_annot_folder'],
-                                                config['train']['train_image_folder'],
-                                                config['model']['labels'])
+    # train_imgs, train_labels = parse_annotation(config['train']['train_annot_folder'],
+    #                                             config['train']['train_image_folder'],
+    #                                             config['model']['labels'])
+
+    train_imgs, train_labels = aerial_parse_annotation(config['train']['train_image_name_list'], 
+                                                       config['model']['labels'])
 
     grid_w = config['model']['input_size']/32
     grid_h = config['model']['input_size']/32
@@ -125,6 +130,7 @@ def main(argv):
             relatice_h = (float(obj["ymax"]) - float(obj['ymin']))/cell_h
             annotation_dims.append(map(float, (relative_w,relatice_h)))
     annotation_dims = np.array(annotation_dims)
+    print(annotation_dims[:5])
 
     centroids = run_kmeans(annotation_dims, num_anchors)
 

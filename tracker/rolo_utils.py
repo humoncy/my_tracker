@@ -2,6 +2,7 @@ import os
 import cv2
 import glob
 import re
+import math
 import numpy as np
 from bbox_utils import xywh_to_xyxy
 
@@ -22,7 +23,7 @@ def sort_nicely(l):
     """
     return l.sort(key=alphanum_key)
 
-def check_data(data_dir, annot_path):
+def check_data(data_dir, annot_path, YOLO_result=True):
     """
         input a video directory and its annotation file,
         and check if the annotations is correct or not
@@ -38,25 +39,57 @@ def check_data(data_dir, annot_path):
     sort_nicely(image_paths)
     
     print(annot_path)
-    bboxes = np.loadtxt(annot_path, delimiter=',', dtype=int)
+
+    if YOLO_result:
+        bboxes = np.load(annot_path)
+        bboxes[:, 0] *= 1280
+        bboxes[:, 1] *= 720
+        bboxes[:, 2] *= 1280
+        bboxes[:, 3] *= 720
+        bboxes[:, 0] -= bboxes[:, 2] / 2
+        bboxes[:, 1] -= bboxes[:, 3] / 2
+    else:
+        bboxes = np.loadtxt(annot_path, delimiter=',')
     # print(bboxes.shape)
     bboxes = xywh_to_xyxy(bboxes)
-    # print(bboxes.shape)
-    
 
     for i, image_path in enumerate(image_paths):
         image = cv2.imread(image_path)
-        print(image.shape)
+        # print(image.shape)
         print(bboxes[i])
-        cv2.rectangle(image, 
-            (bboxes[i][0],bboxes[i][1]), 
-            (bboxes[i][2],bboxes[i][3]), 
-            (0,255,0), 3)
+        if isNAN(bboxes[i]) is not True:
+            cv2.rectangle(image, 
+                (int(bboxes[i][0]),int(bboxes[i][1])), 
+                (int(bboxes[i][2]),int(bboxes[i][3])), 
+                (0,255,0), 3)
         cv2.imshow("output", image)
         cv2.waitKey(30)
 
+def isNAN(bbox):
+    for value in bbox.flatten():
+        if math.isnan(value):
+            return True
+
+def num_img(annot_folder_path):
+    annot_file_list = sorted(glob.glob(os.path.join(os.path.dirname(__file__), annot_folder_path, '*txt')))
+    sort_nicely(annot_file_list)
+
+    num_total_imgs = 0
+    for annot_file in annot_file_list:
+        num_frames = sum(1 for line in open(annot_file))
+        num_total_imgs += num_frames
+        
+    return num_total_imgs
+
 
 if __name__ == '__main__':
-    data_dir = '/home/peng/data/rolo_data/images/train/person/'
-    annot_path = '/home/peng/data/rolo_data/annotations/train/person.txt'
-    check_data(data_dir, annot_path)
+    # data_dir = '/home/peng/data/small_rolo_data/images/train/person/'
+    # annot_path = '/home/peng/data/small_rolo_data/annotations/train/person.txt'
+    # check_data(data_dir, annot_path, YOLO_result=False)
+
+    # data_dir = '/home/peng/data/small_rolo_data/images/train/person/'
+    # annot_path = '/home/peng/data/small_rolo_data/detected/train/person.npy'
+    # check_data(data_dir, annot_path ,YOLO_result=True)
+
+    num_train_img = num_img('/home/peng/data/rolo_data/annotations/train/')
+    print(num_train_img)

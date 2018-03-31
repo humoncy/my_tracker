@@ -222,7 +222,7 @@ class BatchGenerator(Sequence):
             # increase instance counter in current batch
             instance_count += 1  
 
-        print ' new batch created', idx
+        # print ' new batch created', idx
 
         return [x_batch, b_batch], y_batch
 

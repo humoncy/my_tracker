@@ -5,6 +5,7 @@ import tensorflow as tf
 import numpy as np
 import os
 import cv2
+import time
 from keras.applications.mobilenet import MobileNet
 from keras.layers.merge import concatenate
 from keras.optimizers import SGD, Adam, RMSprop
@@ -279,9 +280,11 @@ class YOLO(object):
         # print(input_image.shape)
         # print(dummy_array.shape)
 
+        # start_time = time.time()
         netout = self.model.predict([input_image, dummy_array])[0]
-
-        print("YOLO network output shape:", netout.shape)
+        # end_time = time.time()
+        # print("YOLO predict time: {} sec per image.".format(end_time-start_time))
+        # print("YOLO network output shape:", netout.shape)
 
         boxes  = self.decode_netout(netout)
 
