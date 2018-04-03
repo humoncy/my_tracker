@@ -56,6 +56,7 @@ def check_data(data_dir, annot_path, YOLO_result=True):
     for i, image_path in enumerate(image_paths):
         image = cv2.imread(image_path)
         # print(image.shape)
+        print("{}th frame".format(i))
         print(bboxes[i])
         if isNAN(bboxes[i]) is not True:
             cv2.rectangle(image, 
@@ -64,6 +65,8 @@ def check_data(data_dir, annot_path, YOLO_result=True):
                 (0,255,0), 3)
         cv2.imshow("output", image)
         cv2.waitKey(30)
+        if i == 250:
+            break
 
 def isNAN(bbox):
     for value in bbox.flatten():
@@ -83,12 +86,16 @@ def num_img(annot_folder_path):
 
 
 if __name__ == '__main__':
-    # data_dir = '/home/peng/data/small_rolo_data/images/train/person/'
-    # annot_path = '/home/peng/data/small_rolo_data/annotations/train/person.txt'
+    # data_dir = '/home/peng/data/rolo_data/images/train/person21/'
+    # annot_path = '/home/peng/data/rolo_data/annotations/train/person21.txt'
     # check_data(data_dir, annot_path, YOLO_result=False)
 
-    # data_dir = '/home/peng/data/small_rolo_data/images/train/person/'
-    # annot_path = '/home/peng/data/small_rolo_data/detected/train/person.npy'
+    # data_dir = '/home/peng/data/rolo_data/images/train/person1/'
+    # annot_path = '/home/peng/data/rolo_data/detected/train/person1.npy'
+    # check_data(data_dir, annot_path ,YOLO_result=True)
+
+    # data_dir = '/home/peng/data/rolo_data/images/valid/person14_2/'
+    # annot_path = '/home/peng/data/rolo_data/detected/valid/person14_2npy'
     # check_data(data_dir, annot_path ,YOLO_result=True)
 
     num_train_img = num_img('/home/peng/data/rolo_data/annotations/train/')

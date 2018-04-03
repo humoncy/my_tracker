@@ -28,7 +28,7 @@ from keras.optimizers import SGD, Adam, RMSprop
 from keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 argparser = argparse.ArgumentParser(
     description='Recurrent YOLO')
@@ -60,6 +60,8 @@ argparser.add_argument(
 
 # image_path = '/home/peng/data/rolo_data/images/val/person/000001.jpg'
 
+def get_slice(x):
+    return x[:, -1, 4]
 
 class ROLO(object):
     def __init__(self,
@@ -89,23 +91,26 @@ class ROLO(object):
         else:
             inputs = Input(batch_shape=(self.batch_size, self.time_step, self.input_size))
 
-        x = TimeDistributed(Conv2D(512, (1,1), strides=(1,1), padding='same'), name='cov_001')(inputs)
-        x = TimeDistributed(Conv2D(256, (1,1), strides=(1,1), padding='same'), name='cov_002')(x)
-        x = TimeDistributed(Conv2D(128, (1,1), strides=(1,1), padding='same'), name='cov_003')(x)
-        x = TimeDistributed(Conv2D(64, (1,1), strides=(1,1), padding='same'), name='cov_004')(x)
+        x = TimeDistributed(Conv2D(512, (3,3), strides=(1,1), padding='same'), name='cov_001')(inputs)
+        # x = TimeDistributed(Conv2D(256, (3,3), strides=(1,1), padding='same'), name='cov_002')(x)
+        # x = TimeDistributed(Conv2D(128, (1,1), strides=(1,1), padding='same'), name='cov_003')(x)
+        # x = TimeDistributed(Conv2D(64, (1,1), strides=(1,1), padding='same'), name='cov_004')(x)
         x = TimeDistributed(Conv2D(32, (1,1), strides=(1,1), padding='same'), name='cov_005')(x)
-        x = ConvLSTM2D(filters=32,
-                       kernel_size=(3,3),
-                       padding='same',
-                       return_sequences=False,
-                       stateful=rolo_config[mode]['lstm_stateful'])(x)
-        x = Flatten()(x)
-        x = Dense(4096)(x)
-
-        bbox_inputs = Input(batch_shape=(self.batch_size, 4))
+        x = TimeDistributed(Flatten())(x)
+        bbox_inputs = Input(batch_shape=(self.batch_size, self.time_step, 4))
         x = concatenate([x, bbox_inputs])
-        # x = CuDNNLSTM(units=rolo_config["CELL_SIZE"], return_sequences=False)(inputs)
-        output = Dense(4)(x)
+        x = CuDNNLSTM(units=rolo_config["train"]["CELL_SIZE"], return_sequences=False, stateful=rolo_config[mode]['lstm_stateful'])(x)
+        # x = ConvLSTM2D(filters=32,
+        #                kernel_size=(3,3),
+        #                padding='same',
+        #                return_sequences=False,
+        #                stateful=rolo_config[mode]['lstm_stateful'])(x)
+
+        x = Dense(4)(x)
+        # bbox_inputs shape: [batch_size, time_step, 4], use the bbox of the last timestep only
+        bbox_last_input = Lambda(lambda arg_tensor: arg_tensor[:, 1, :])(bbox_inputs)
+        x = concatenate([x, bbox_last_input]) 
+        output = Dense(4)(x)        
 
         # self.model = Model(inputs, output)
         self.model = Model([inputs, bbox_inputs], output)
@@ -314,10 +319,10 @@ class ROLO(object):
 
         early_stop = EarlyStopping(monitor='val_loss', 
                            min_delta=0.0001, 
-                           patience=10, 
+                           patience=3, 
                            mode='min', 
                            verbose=1)
-        file_path = "checkpoints/" + saved_weights_name[:-3] + "-{epoch:02d}-{val_loss:.4f}.h5"
+        file_path = "checkpoints/" + saved_weights_name[:-3] + "-{epoch:02d}-{val_loss:.2f}.h5"
         print("Save model path:", file_path)
         checkpoint = ModelCheckpoint(file_path, 
                                      monitor='val_loss', 
@@ -349,11 +354,18 @@ class ROLO(object):
     
 
     def get_test_batch(self, inputs_list):
-        if isinstance(self.input_size, list):
-            test_batch = np.zeros((self.batch_size, self.time_step, 
-                                   self.input_size[0], self.input_size[1], self.input_size[2]))
-        else:
-            test_batch = np.zeros((self.batch_size, self.time_step, self.input_size))
+        """ Get test batch, if batch size is not 1, then duplicate the first batch to the others
+        """
+        # if isinstance(self.input_size, list):
+        #     test_batch = np.zeros((self.batch_size, self.time_step, 
+        #                            self.input_size[0], self.input_size[1], self.input_size[2]))
+        # else:
+        #     test_batch = np.zeros((self.batch_size, self.time_step, self.input_size))
+        if inputs_list is not None:
+            input_shape = np.array(inputs_list[0]).shape[1:]
+            test_batch_shape = [self.batch_size, self.time_step]
+            test_batch_shape += list(input_shape)
+            test_batch = np.zeros(tuple(test_batch_shape))
             
         for i in range(self.time_step):
             input_index = i + len(inputs_list) - self.time_step
@@ -377,7 +389,8 @@ class ROLO(object):
         if len(frame_path_list) == 0:
             raise IOError("Found {} frames".format(len(frame_path_list)))
 
-        inputs_list = []
+        feature_inputs_list = []
+        bbox_inputs_list = []
 
         initial_box = xywh_xymin_to_xycenter(initial_box)  # x_center, y_center, w, h
 
@@ -391,30 +404,33 @@ class ROLO(object):
                 boxes, feature = yolo.predict_for_rolo(frame)
                 normalized_initial_box = normalize_box(frame.shape, initial_box)
                 # inputs = np.concatenate((feature.flatten(), normalized_initial_box))
-                inputs = feature
+                # inputs = feature
                 # inputs = normalized_initial_box
-                inputs_list.append(inputs)
+                feature_inputs_list.append(feature)
+                bbox = np.expand_dims(np.array(normalized_initial_box), axis=0)
+                bbox_inputs_list.append(bbox)
+                
                 last_box = BoundBox(normalized_initial_box[0], normalized_initial_box[1], normalized_initial_box[2] ,normalized_initial_box[3])
             else:
-
-
                 boxes, feature = yolo.predict_for_rolo(frame)
 
-                
                 chosen_box = choose_best_box(boxes, last_box)
                 last_box = chosen_box
-                chosen_box.print_box()
+                # chosen_box.print_box()
                 # inputs = np.concatenate((feature.flatten(), [chosen_box.x, chosen_box.y, chosen_box.w, chosen_box.h]))
-                inputs = feature
+                # inputs = feature
                 # inputs = [chosen_box.x, chosen_box.y, chosen_box.w, chosen_box.h]
-                inputs_list.append(inputs)
+                feature_inputs_list.append(feature)  # shape: [1,13,13,1024]
+                bbox = np.expand_dims(np.array([chosen_box.x, chosen_box.y, chosen_box.w, chosen_box.h]), axis=0)  # shape: [1,4]
+                bbox_inputs_list.append(bbox)
 
                 l_bound = i - self.time_step + 1
                 if l_bound < 0:
                     l_bound = 0
-                feature_input = self.get_test_batch(inputs_list[l_bound:i+1])
+                feature_input = self.get_test_batch(feature_inputs_list[l_bound:i+1])
+                bbox_input = self.get_test_batch(bbox_inputs_list[l_bound:i+1])
 
-                bbox_input = np.array([[chosen_box.x, chosen_box.y, chosen_box.w, chosen_box.h]])
+                # bbox_input = np.array([[chosen_box.x, chosen_box.y, chosen_box.w, chosen_box.h]])
 
                 start_time = time.time()
                 # Prediction by ROLO
@@ -478,15 +494,23 @@ def _main_(args):
         yolo_weights_path = yolo_weights_path
     )
 
-    rolo.load_weights(rolo_config["rolo_pretrained_weight"])
+    if rolo_config["train"]["use_pretrained_weight"] == "True":
+        rolo.load_weights(rolo_config["train"]["rolo_pretrained_weight"])
+
+    if rolo_config['warm_up'] == "True":
+        data_folder = rolo_config['warm_up_data_folder']
+        saved_weights_name = "warm_" + rolo_config["train"]["saved_weights_name"]
+    else:
+        data_folder = rolo_config['data_folder']
+        saved_weights_name = rolo_config["train"]["saved_weights_name"]
 
     rolo.train(
-        data_folder=rolo_config['data_folder'],
+        data_folder=data_folder,
         train_times=rolo_config["train"]["train_times"],
         valid_times=rolo_config["train"]["valid_times"],
         nb_epoch=rolo_config["train"]["nb_epoch"],
         learning_rate=rolo_config["train"]["learning_rate"],
-        saved_weights_name=rolo_config["train"]["saved_weights_name"]
+        saved_weights_name=saved_weights_name
     )
 
     # rolo.track(config["test_video_folder"])
