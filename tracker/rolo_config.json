@@ -1,5 +1,5 @@
 {
-    "warm_up": "False",
+    "warm_up": "True",
     "data_folder": "/home/peng/data/good_rolo_data/",
     "warm_up_data_folder": "/home/peng/data/small_rolo_data/",
     "yolo_config": "../config_aerial.json",
@@ -12,13 +12,13 @@
         "rolo_pretrained_weight": "checkpoints/warm_rolo_v3-02-1.19.h5",
         "use_pretrained_weight" : "False",
         "CELL_SIZE":             5412,
-        "BATCH_SIZE":             4,
+        "BATCH_SIZE":             16,
         "TIME_STEP":              2,
         "train_times":           1,
         "valid_times":            1,
         "nb_epoch"   :           50,
         "learning_rate":       1e-4,
-        "saved_weights_name":   "rolo_try5.h5",
+        "saved_weights_name":   "rolo_try6.h5",
         "lstm_stateful":        "False"
     },
 
@@ -26,7 +26,7 @@
         "BATCH_SIZE":   1,
         "TIME_STEP":    2,
         "lstm_stateful":        "False",
-        "weights":  "checkpoints/warm_rolo_v3-02-1.19.h5",
+        "weights":  "checkpoints/warm_rolo_try6-50-34.48.h5",
         "test_video_folder": "/home/peng/data/small_rolo_data/images/train/person/",
         "test_annot_file": "/home/peng/data/small_rolo_data/annotations/train/person.txt"
     }

@@ -93,14 +93,26 @@ class ROLO(object):
 
         bbox_inputs = Input(batch_shape=(self.batch_size, self.time_step, 4))
 
-        x = TimeDistributed(Conv2D(512, (1,1), strides=(1,1), padding='same'), name='cov_001')(inputs)
-        x = TimeDistributed(Conv2D(256, (1,1), strides=(1,1), padding='same'), name='cov_002')(x)
-        x = TimeDistributed(Conv2D(128, (1,1), strides=(1,1), padding='same'), name='cov_003')(x)
-        x = TimeDistributed(Conv2D(64, (1,1), strides=(1,1), padding='same'), name='cov_004')(x)
-        x = TimeDistributed(Conv2D(32, (1,1), strides=(1,1), padding='same'), name='cov_005')(x)
-        x = TimeDistributed(Flatten())(x)
-        x = concatenate([x, bbox_inputs])
-        x = CuDNNLSTM(units=rolo_config["train"]["CELL_SIZE"], return_sequences=False, stateful=rolo_config[mode]['lstm_stateful'])(x)
+        bbox = TimeDistributed(Dense(676))(bbox_inputs)
+        bbox = BatchNormalization()(bbox)
+        bbox = TimeDistributed(Reshape((13,13,4)))(bbox)
+        x = concatenate([inputs, bbox])
+        x = ConvLSTM2D(1028, (3,3), padding='same')(x)
+        feat_output = Lambda(lambda arg: arg[..., :1024], name='feat_output')(x)
+        bbox_output = Lambda(lambda arg: arg[..., 1024:])(x)
+        bbox_output = Flatten()(bbox_output)
+        bbox_output = Dense(4, activation='sigmoid', name='bbox_output')(bbox_output)
+
+
+        # x = TimeDistributed(Conv2D(512, (1,1), strides=(1,1), padding='same'), name='cov_001')(inputs)
+        # x = TimeDistributed(Conv2D(256, (1,1), strides=(1,1), padding='same'), name='cov_002')(x)
+        # x = TimeDistributed(Conv2D(128, (1,1), strides=(1,1), padding='same'), name='cov_003')(x)
+        # x = TimeDistributed(Conv2D(64, (1,1), strides=(1,1), padding='same'), name='cov_004')(x)
+        # x = TimeDistributed(Conv2D(32, (1,1), strides=(1,1), padding='same'), name='cov_005')(x)
+        # x = TimeDistributed(Flatten())(x)
+        # x = concatenate([x, bbox_inputs])
+        # x = CuDNNLSTM(units=rolo_config["train"]["CELL_SIZE"], return_sequences=False, stateful=rolo_config[mode]['lstm_stateful'])(x)
+
         # x = Dense(5412)(x)
         # x = ConvLSTM2D(filters=32,
         #                kernel_size=(3,3),
@@ -113,18 +125,17 @@ class ROLO(object):
         # bbox_last_input = Lambda(lambda arg_tensor: arg_tensor[:, 1, :])(bbox_inputs)
         # x = concatenate([x, bbox_last_input]) 
         # output = Dense(4)(x)
-        feat_output = Lambda(lambda arg: arg[:, :5408])(x)
-        coord_output = Lambda(lambda arg: arg[:, 5408:], name='coord_output')(x)
-
-        feat_output = Reshape((13, 13, 32))(feat_output)
-        feat_output = Conv2D(64, (1,1), padding='same')(feat_output)
-        feat_output = Conv2D(128, (1,1), padding='same')(feat_output)
-        feat_output = Conv2D(256, (1,1), padding='same')(feat_output)
-        feat_output = Conv2D(512, (1,1), padding='same')(feat_output)
-        feat_output = Conv2D(1024, (1,1), padding='same', name='feat_output')(feat_output)
+        # feat_output = Lambda(lambda arg: arg[:, :5408])(x)
+        # coord_output = Lambda(lambda arg: arg[:, 5408:], name='coord_output')(x)
+        # feat_output = Reshape((13, 13, 32))(feat_output)
+        # feat_output = Conv2D(64, (1,1), padding='same')(feat_output)
+        # feat_output = Conv2D(128, (1,1), padding='same')(feat_output)
+        # feat_output = Conv2D(256, (1,1), padding='same')(feat_output)
+        # feat_output = Conv2D(512, (1,1), padding='same')(feat_output)
+        # feat_output = Conv2D(1024, (1,1), padding='same', name='feat_output')(feat_output)
 
         # self.model = Model(inputs, output)
-        self.model = Model([inputs, bbox_inputs], [feat_output, coord_output])
+        self.model = Model([inputs, bbox_inputs], [feat_output, bbox_output])
 
         # print a summary of the whole model
         self.model.summary()
@@ -314,7 +325,7 @@ class ROLO(object):
         optimizer = Adam(lr=learning_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
         # self.model.compile(loss=self.custom_loss, optimizer=optimizer)
         # self.model.compile(loss=self.custom_loss2, optimizer=optimizer)
-        self.model.compile(loss={'feat_output': self.feat_loss, 'coord_output': self.coord_loss}, loss_weights=[1., 1.], optimizer=optimizer)
+        self.model.compile(loss={'feat_output': self.feat_loss, 'bbox_output': self.coord_loss}, loss_weights=[1., 1.], optimizer=optimizer)
         # self.model.compile(loss='mse', optimizer=optimizer)
 
         ############################################
@@ -368,8 +379,8 @@ class ROLO(object):
                                  validation_data  = valid_batch,
                                  validation_steps = len(valid_batch) * valid_times,
                                  callbacks        = [early_stop, checkpoint, tensorboard],  #TODO
-                                 workers          = 1,   #TODO
-                                 use_multiprocessing = False     #TODO
+                                 workers          = 3,   #TODO
+                                 use_multiprocessing = True     #TODO
                                 )
     
 
@@ -455,7 +466,7 @@ class ROLO(object):
                 start_time = time.time()
                 # Prediction by ROLO
                 # bbox = self.model.predict([feature_input, bbox_input])[0, self.time_step - 1]
-                bbox = self.model.predict([feature_input, bbox_input])[0, ...]
+                dummy_feat, predict_bbox = self.model.predict([feature_input, bbox_input])
                 end_time = time.time()
                 print("ROLO predict time: {} sec per image.".format(end_time-start_time))
 
@@ -466,6 +477,7 @@ class ROLO(object):
                 frame = draw_box(frame, detected_box, color=(255,0,0))
                 print("Detected box:", detected_box)
 
+                bbox = predict_bbox[0, ...]
                 # Denormalize box
                 bbox[0] *= frame.shape[1]
                 bbox[1] *= frame.shape[0]
