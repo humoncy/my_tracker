@@ -21,7 +21,7 @@ from utils import draw_boxes
 
 from keras.models import Model
 from keras.layers import Reshape, Activation, Conv2D, Input, MaxPooling2D, BatchNormalization, Flatten, Dense, Lambda
-from keras.layers import CuDNNLSTM, TimeDistributed, ConvLSTM2D
+from keras.layers import CuDNNLSTM, TimeDistributed, ConvLSTM2D, UpSampling2D
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.merge import concatenate
 from keras.optimizers import SGD, Adam, RMSprop
@@ -91,29 +91,40 @@ class ROLO(object):
         else:
             inputs = Input(batch_shape=(self.batch_size, self.time_step, self.input_size))
 
-        x = TimeDistributed(Conv2D(512, (3,3), strides=(1,1), padding='same'), name='cov_001')(inputs)
-        # x = TimeDistributed(Conv2D(256, (3,3), strides=(1,1), padding='same'), name='cov_002')(x)
-        # x = TimeDistributed(Conv2D(128, (1,1), strides=(1,1), padding='same'), name='cov_003')(x)
-        # x = TimeDistributed(Conv2D(64, (1,1), strides=(1,1), padding='same'), name='cov_004')(x)
+        bbox_inputs = Input(batch_shape=(self.batch_size, self.time_step, 4))
+
+        x = TimeDistributed(Conv2D(512, (1,1), strides=(1,1), padding='same'), name='cov_001')(inputs)
+        x = TimeDistributed(Conv2D(256, (1,1), strides=(1,1), padding='same'), name='cov_002')(x)
+        x = TimeDistributed(Conv2D(128, (1,1), strides=(1,1), padding='same'), name='cov_003')(x)
+        x = TimeDistributed(Conv2D(64, (1,1), strides=(1,1), padding='same'), name='cov_004')(x)
         x = TimeDistributed(Conv2D(32, (1,1), strides=(1,1), padding='same'), name='cov_005')(x)
         x = TimeDistributed(Flatten())(x)
-        bbox_inputs = Input(batch_shape=(self.batch_size, self.time_step, 4))
         x = concatenate([x, bbox_inputs])
         x = CuDNNLSTM(units=rolo_config["train"]["CELL_SIZE"], return_sequences=False, stateful=rolo_config[mode]['lstm_stateful'])(x)
+        # x = Dense(5412)(x)
         # x = ConvLSTM2D(filters=32,
         #                kernel_size=(3,3),
         #                padding='same',
         #                return_sequences=False,
         #                stateful=rolo_config[mode]['lstm_stateful'])(x)
 
-        x = Dense(4)(x)
+        # x = Dense(4)(x)
         # bbox_inputs shape: [batch_size, time_step, 4], use the bbox of the last timestep only
-        bbox_last_input = Lambda(lambda arg_tensor: arg_tensor[:, 1, :])(bbox_inputs)
-        x = concatenate([x, bbox_last_input]) 
-        output = Dense(4)(x)        
+        # bbox_last_input = Lambda(lambda arg_tensor: arg_tensor[:, 1, :])(bbox_inputs)
+        # x = concatenate([x, bbox_last_input]) 
+        # output = Dense(4)(x)
+        feat_output = Lambda(lambda arg: arg[:, :5408])(x)
+        coord_output = Lambda(lambda arg: arg[:, 5408:], name='coord_output')(x)
+
+        feat_output = Reshape((13, 13, 32))(feat_output)
+        feat_output = Conv2D(64, (1,1), padding='same')(feat_output)
+        feat_output = Conv2D(128, (1,1), padding='same')(feat_output)
+        feat_output = Conv2D(256, (1,1), padding='same')(feat_output)
+        feat_output = Conv2D(512, (1,1), padding='same')(feat_output)
+        feat_output = Conv2D(1024, (1,1), padding='same', name='feat_output')(feat_output)
 
         # self.model = Model(inputs, output)
-        self.model = Model([inputs, bbox_inputs], output)
+        self.model = Model([inputs, bbox_inputs], [feat_output, coord_output])
 
         # print a summary of the whole model
         self.model.summary()
@@ -228,7 +239,7 @@ class ROLO(object):
             features = np.array(features)
             np.save(features_path + '.npy', features)
 
-    def custom_loss(self, y_true, y_pred):
+    def coord_loss(self, y_true, y_pred):
         y_true *= 50
         y_pred *= 50
 
@@ -252,6 +263,13 @@ class ROLO(object):
         if DEBUG:
             loss = tf.Print(loss, [loss_xy], message='Loss XY \t', summarize=1000)
             loss = tf.Print(loss, [loss_wh], message='Loss WH \t', summarize=1000)
+
+        return loss
+
+    def feat_loss(self, y_true, y_pred):
+        y_true *= 50
+        y_pred *= 50
+        loss = tf.reduce_mean(tf.square(y_pred - y_true))
 
         return loss
 
@@ -294,7 +312,9 @@ class ROLO(object):
         ############################################
 
         optimizer = Adam(lr=learning_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
-        self.model.compile(loss=self.custom_loss, optimizer=optimizer)
+        # self.model.compile(loss=self.custom_loss, optimizer=optimizer)
+        # self.model.compile(loss=self.custom_loss2, optimizer=optimizer)
+        self.model.compile(loss={'feat_output': self.feat_loss, 'coord_output': self.coord_loss}, loss_weights=[1., 1.], optimizer=optimizer)
         # self.model.compile(loss='mse', optimizer=optimizer)
 
         ############################################
@@ -348,8 +368,8 @@ class ROLO(object):
                                  validation_data  = valid_batch,
                                  validation_steps = len(valid_batch) * valid_times,
                                  callbacks        = [early_stop, checkpoint, tensorboard],  #TODO
-                                 workers          = 3,   #TODO
-                                 use_multiprocessing = True     #TODO
+                                 workers          = 1,   #TODO
+                                 use_multiprocessing = False     #TODO
                                 )
     
 

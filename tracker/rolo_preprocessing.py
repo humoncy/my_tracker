@@ -192,6 +192,7 @@ class BatchGenerator(Sequence):
                                 self.config['INPUT_SIZE'][0], self.config['INPUT_SIZE'][1], self.config['INPUT_SIZE'][2]))
             bbox_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], 4))
             y_batch = np.zeros((self.config['BATCH_SIZE'], 4))
+            feat_batch = np.zeros((self.config['BATCH_SIZE'], self.config['INPUT_SIZE'][0], self.config['INPUT_SIZE'][1], self.config['INPUT_SIZE'][2]))
         else:
             x_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], self.config['INPUT_SIZE']))
             y_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], 4))
@@ -215,6 +216,7 @@ class BatchGenerator(Sequence):
 
                 if isNAN(detection):
                     # When no detection results in some frame, use the initial box plus some Gaussian random normals as detection results
+                    print("No detection results, use auxiliary bbox.")
                     detection = detections[0, ...]
                     for value in detection:
                         tmp = value + np.random_normal(0, 0.5)
@@ -245,25 +247,20 @@ class BatchGenerator(Sequence):
                             raise ValueError("Label value should > 0")
                     # print(label)
                     y_batch[instance_count, :] = label
+                    feat_batch[instance_count, ...] = feature
                 # print("Label:", label)
 
             instance_count += 1
 
         if isNAN(x_batch):
-            print("\n???????????????????????/???????????")
-            print(x_batch)
-            print("???????????????????????????????????")
             raise ValueError("X batch NAN!!!!!!!!!!!!!1")
         
         if isNAN(bbox_batch):
-            print("\n???????????????????????/???????????")
-            print(bbox_batch)
-            print("???????????????????????????????????")
             raise ValueError("BBOX batch NAN!!!!!!!!!!!!!1")
 
         # print ' new batch created', idx
-        # print(bbox_batch.shape)
-        return [x_batch, bbox_batch], y_batch       
+        # print(feat_batch.shape)
+        return [x_batch, bbox_batch], [feat_batch, y_batch]
     
     def on_epoch_end(self):
         if self.shuffle: np.random.shuffle(self.images)
