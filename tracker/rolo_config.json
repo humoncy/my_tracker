@@ -1,5 +1,5 @@
 {
-    "warm_up": "False",
+    "warm_up": "True",
     "data_folder": "/home/peng/data/good_rolo_data/",
     "warm_up_data_folder": "/home/peng/data/small_rolo_data/",
     "yolo_config": "../config_aerial.json",
