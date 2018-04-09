@@ -387,11 +387,6 @@ class ROLO(object):
     def get_test_batch(self, inputs_list):
         """ Get test batch, if batch size is not 1, then duplicate the first batch to the others
         """
-        # if isinstance(self.input_size, list):
-        #     test_batch = np.zeros((self.batch_size, self.time_step, 
-        #                            self.input_size[0], self.input_size[1], self.input_size[2]))
-        # else:
-        #     test_batch = np.zeros((self.batch_size, self.time_step, self.input_size))
         if inputs_list is not None:
             input_shape = np.array(inputs_list[0]).shape[1:]
             test_batch_shape = [self.batch_size, self.time_step]
@@ -475,7 +470,7 @@ class ROLO(object):
                 # Draw detected box by YOLO
                 detected_box = denormalize_box(frame.shape, chosen_box)
                 frame = draw_box(frame, detected_box, color=(255,0,0))
-                print("Detected box:", detected_box)
+                print("Detected box: [ {:.2f}  {:.2f}  {:.2f}  {:.2f} ]".format(detected_box[0], detected_box[1], detected_box[2], detected_box[3]))
 
                 bbox = predict_bbox[0, ...]
                 # Denormalize box
@@ -485,7 +480,7 @@ class ROLO(object):
                 bbox[3] *= frame.shape[0]
                 # Draw Tracked box by ROLO
                 frame = draw_box(frame, bbox)
-                print("Tracked box: ", bbox)
+                print("Tracked box : [ {:.2f}  {:.2f}  {:.2f}  {:.2f} ]".format(bbox[0], bbox[1], bbox[2], bbox[3]))
 
                 tracking_time += (end_time - start_time)
 

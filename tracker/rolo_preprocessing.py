@@ -163,7 +163,7 @@ class BatchGenerator(Sequence):
         ##########################################################################
         
         while isNAN(labels[l_bound:(r_bound - 1 + self.config['TIME_STEP']), ...]):
-            print("\nGround truth is Nan, choose another batch")
+            # print("\nGround truth is Nan, choose another batch")
             l_bound = (np.random.random_integers(0, 1000) % num_batch) * self.config['BATCH_SIZE']
             r_bound = l_bound + self.config['BATCH_SIZE']
             if r_bound - 1 + self.config['TIME_STEP'] > num_frames:

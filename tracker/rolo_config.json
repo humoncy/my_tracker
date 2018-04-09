@@ -1,5 +1,5 @@
 {
-    "warm_up": "True",
+    "warm_up": "False",
     "data_folder": "/home/peng/data/good_rolo_data/",
     "warm_up_data_folder": "/home/peng/data/small_rolo_data/",
     "yolo_config": "../config_aerial.json",
@@ -26,7 +26,7 @@
         "BATCH_SIZE":   1,
         "TIME_STEP":    2,
         "lstm_stateful":        "False",
-        "weights":  "checkpoints/warm_rolo_try6-50-34.48.h5",
+        "weights":  "checkpoints/rolo_try6-12-120.44.h5",
         "test_video_folder": "/home/peng/data/small_rolo_data/images/train/person/",
         "test_annot_file": "/home/peng/data/small_rolo_data/annotations/train/person.txt"
     }
