@@ -94,9 +94,9 @@ if __name__ == '__main__':
     # annot_path = '/home/peng/data/rolo_data/detected/train/person1.npy'
     # check_data(data_dir, annot_path ,YOLO_result=True)
 
-    # data_dir = '/home/peng/data/rolo_data/images/valid/person14_2/'
-    # annot_path = '/home/peng/data/rolo_data/detected/valid/person14_2npy'
-    # check_data(data_dir, annot_path ,YOLO_result=True)
+    data_dir = '/home/peng/data/rolo_data/images/train/person14_2/'
+    annot_path = '/home/peng/data/rolo_data/detected/train/person14_2.npy'
+    check_data(data_dir, annot_path ,YOLO_result=True)
 
-    num_train_img = num_img('/home/peng/data/rolo_data/annotations/train/')
-    print(num_train_img)
+    # num_train_img = num_img('/home/peng/data/rolo_data/annotations/train/')
+    # print(num_train_img)

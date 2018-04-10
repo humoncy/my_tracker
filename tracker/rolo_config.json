@@ -1,5 +1,5 @@
 {
-    "warm_up": "True",
+    "warm_up": "False",
     "data_folder": "/home/peng/data/good_rolo_data/",
     "warm_up_data_folder": "/home/peng/data/small_rolo_data/",
     "yolo_config": "../config_aerial.json",
@@ -9,11 +9,11 @@
 
 
     "train": {
-        "rolo_pretrained_weight": "checkpoints/warm_rolo_v3-02-1.19.h5",
-        "use_pretrained_weight" : "False",
+        "rolo_pretrained_weight": "checkpoints/rolo_try6-03-50.67.h5",
+        "use_pretrained_weight" : "True",
         "CELL_SIZE":             5412,
-        "BATCH_SIZE":             16,
-        "TIME_STEP":              2,
+        "BATCH_SIZE":             2,
+        "TIME_STEP":              16,
         "train_times":           1,
         "valid_times":            1,
         "nb_epoch"   :           50,
@@ -24,7 +24,7 @@
 
     "test": {
         "BATCH_SIZE":   1,
-        "TIME_STEP":    2,
+        "TIME_STEP":    4,
         "lstm_stateful":        "False",
         "weights":  "checkpoints/rolo_try6-12-120.44.h5",
         "test_video_folder": "/home/peng/data/small_rolo_data/images/train/person/",

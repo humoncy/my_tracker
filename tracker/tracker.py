@@ -168,6 +168,15 @@ class ROLO(object):
         yolo.load_weights(self.yolo_weights_path)
 
         for vid, video_folder in enumerate(video_folders_list):
+            print(basename(video_folder))
+            detected_label_path = os.path.join(data[mode]['detected_folder'], basename(video_folder))
+            if os.path.exists(detected_label_path + '.npy') is True:
+                continue
+
+            features_path = os.path.join(data[mode]['features_folder'], basename(video_folder))
+            if os.path.exists(features_path + '.npy') is True:
+                continue
+            
             num_frames = sum(1 for line in open(annotations_list[vid], 'r'))
             image_path_list = sorted(glob.glob(video_folder + "/*"))
             sort_nicely(image_path_list)
@@ -187,12 +196,10 @@ class ROLO(object):
             detected_box = [first_box.x, first_box.y, first_box.w, first_box.h]
             detected_boxes.append(detected_box)
 
-            detected_label_path = os.path.join(data[mode]['detected_folder'], basename(video_folder))
 
             # Write the detected features into features/
             features = []
-            features_path = os.path.join(data[mode]['features_folder'], basename(video_folder))
-            
+
             for i, image_path in enumerate(image_path_list):
                 print("============ Detecting {} video, {} frame ===============".format(basename(video_folder), basename(image_path)))
                 image = cv2.imread(image_path)
@@ -232,23 +239,12 @@ class ROLO(object):
             print("======================= Save detected label result ==========================")
             detected_boxes = np.array(detected_boxes)
             print("Video:{} {} boxes are detected".format(basename(video_folder), detected_boxes.shape[0]))
-
-            if DEBUG is not True:
-                np.save(detected_label_path + '.npy', detected_boxes)
-                # np.savetxt(detected_label_path + '.txt', detected_boxes, delimiter=',')
-            else:
-                print("-----Debugging-----")
-                # print("Write txt label file.")
-                # detected_boxes[:, 0] *= first_image.shape[1]
-                # detected_boxes[:, 1] *= first_image.shape[0]
-                # detected_boxes[:, 2] *= first_image.shape[1]
-                # detected_boxes[:, 3] *= first_image.shape[0]
-                # detected_boxes = np.round(detected_boxes)
-                # np.savetxt(detected_label_path + '.txt', detected_boxes.astype(int), fmt='%i', delimiter=',')
+            np.save(detected_label_path + '.npy', detected_boxes)
 
             print("========================== Save feature map =================================")
             features = np.array(features)
             np.save(features_path + '.npy', features)
+
 
     def coord_loss(self, y_true, y_pred):
         y_true *= 50
