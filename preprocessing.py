@@ -161,9 +161,9 @@ class BatchGenerator(Sequence):
             for obj in all_objs:
                 if obj['xmax'] > obj['xmin'] and obj['ymax'] > obj['ymin'] and obj['name'] in self.config['LABELS']:
                     center_x = .5*(obj['xmin'] + obj['xmax'])
-                    center_x = center_x / (float(self.config['IMAGE_W']) / self.config['GRID_W'])
+                    center_x = center_x / ( float(self.config['IMAGE_W']) / self.config['GRID_W'] )
                     center_y = .5*(obj['ymin'] + obj['ymax'])
-                    center_y = center_y / (float(self.config['IMAGE_H']) / self.config['GRID_H'])
+                    center_y = center_y / ( float(self.config['IMAGE_H']) / self.config['GRID_H'] )
 
                     grid_x = int(np.floor(center_x))
                     grid_y = int(np.floor(center_y))

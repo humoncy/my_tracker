@@ -14,7 +14,7 @@ import re
 
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 argparser = argparse.ArgumentParser(
     description='Train and validate YOLO_v2 model on any dataset')
@@ -121,10 +121,10 @@ def _main_(args):
         image_paths = sorted(glob.glob(os.path.join(os.path.dirname(__file__), image_path, '*jpg')))
         sort_nicely(image_paths)
 
-        FPS = 50
+        FPS = 30
         # remember to modify frame width and height before testing video
-        frame_width = 960
-        frame_height = 540
+        frame_width = 1280
+        frame_height = 720
         video_writer = cv2.VideoWriter(image_path[:-1] + '.avi', cv2.VideoWriter_fourcc('M','J','P','G'), FPS, (frame_width, frame_height))
         for i in tqdm(range(len(image_paths))):
             image = cv2.imread(image_paths[i])

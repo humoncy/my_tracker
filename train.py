@@ -75,12 +75,6 @@ def _main_(args):
                                                 config['train']['train_image_folder'], 
                                                 config['model']['labels'])
 
-    print(type(train_imgs))
-    print(len(train_imgs))
-    print(type(train_imgs[0]))
-    print(train_labels)
-    exit()
-
     # parse annotations of the validation set, if any, otherwise split the training set
     if os.path.exists(config['valid']['valid_annot_folder']):
         valid_imgs, valid_labels = parse_annotation(config['valid']['valid_annot_folder'], 

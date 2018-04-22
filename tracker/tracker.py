@@ -17,11 +17,11 @@ from os.path import basename, splitext
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
 from frontend import YOLO
-from utils import draw_boxes
+# from utils import draw_boxes, bbox_iou, sigmoid, softmax
 
 from keras.models import Model
 from keras.layers import Reshape, Activation, Conv2D, Input, MaxPooling2D, BatchNormalization, Flatten, Dense, Lambda
-from keras.layers import CuDNNLSTM, TimeDistributed, ConvLSTM2D, UpSampling2D
+from keras.layers import CuDNNLSTM, TimeDistributed, ConvLSTM2D, UpSampling2D, Add
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.merge import concatenate
 from keras.optimizers import SGD, Adam, RMSprop
@@ -73,8 +73,16 @@ class ROLO(object):
         self.batch_size = rolo_config[mode]['BATCH_SIZE']
         self.time_step = rolo_config[mode]['TIME_STEP']
         self.input_size = rolo_config['INPUT_SIZE']
+        self.anchors = rolo_config["anchors"]
         self.yolo_config = yolo_config
         self.yolo_weights_path = yolo_weights_path
+
+        # self.grid_w = 13
+        # self.grid_h = 13
+        # self.nb_class = 1
+        # self.nb_box = 5
+        # self.class_wt = np.ones(self.nb_class, dtype='float32')
+        # self.true_boxes = Input(shape=(1, 1, 1, 1, 4))  
 
         ##########################
         # Make the model
@@ -93,49 +101,14 @@ class ROLO(object):
 
         bbox_inputs = Input(batch_shape=(self.batch_size, self.time_step, 4))
 
-        bbox = TimeDistributed(Dense(676))(bbox_inputs)
-        bbox = BatchNormalization()(bbox)
-        bbox = TimeDistributed(Reshape((13,13,4)))(bbox)
-        x = concatenate([inputs, bbox])
-        x = ConvLSTM2D(1028, (3,3), padding='same')(x)
-        feat_output = Lambda(lambda arg: arg[..., :1024], name='feat_output')(x)
-        bbox_output = Lambda(lambda arg: arg[..., 1024:])(x)
-        bbox_output = Flatten()(bbox_output)
-        bbox_output = Dense(4, activation='sigmoid', name='bbox_output')(bbox_output)
+        x = CuDNNLSTM(4, return_sequences=True, stateful=rolo_config[mode]['lstm_stateful'])(bbox_inputs)
 
-
-        # x = TimeDistributed(Conv2D(512, (1,1), strides=(1,1), padding='same'), name='cov_001')(inputs)
-        # x = TimeDistributed(Conv2D(256, (1,1), strides=(1,1), padding='same'), name='cov_002')(x)
-        # x = TimeDistributed(Conv2D(128, (1,1), strides=(1,1), padding='same'), name='cov_003')(x)
-        # x = TimeDistributed(Conv2D(64, (1,1), strides=(1,1), padding='same'), name='cov_004')(x)
-        # x = TimeDistributed(Conv2D(32, (1,1), strides=(1,1), padding='same'), name='cov_005')(x)
-        # x = TimeDistributed(Flatten())(x)
-        # x = concatenate([x, bbox_inputs])
-        # x = CuDNNLSTM(units=rolo_config["train"]["CELL_SIZE"], return_sequences=False, stateful=rolo_config[mode]['lstm_stateful'])(x)
-
-        # x = Dense(5412)(x)
-        # x = ConvLSTM2D(filters=32,
-        #                kernel_size=(3,3),
-        #                padding='same',
-        #                return_sequences=False,
-        #                stateful=rolo_config[mode]['lstm_stateful'])(x)
-
-        # x = Dense(4)(x)
-        # bbox_inputs shape: [batch_size, time_step, 4], use the bbox of the last timestep only
-        # bbox_last_input = Lambda(lambda arg_tensor: arg_tensor[:, 1, :])(bbox_inputs)
-        # x = concatenate([x, bbox_last_input]) 
-        # output = Dense(4)(x)
-        # feat_output = Lambda(lambda arg: arg[:, :5408])(x)
-        # coord_output = Lambda(lambda arg: arg[:, 5408:], name='coord_output')(x)
-        # feat_output = Reshape((13, 13, 32))(feat_output)
-        # feat_output = Conv2D(64, (1,1), padding='same')(feat_output)
-        # feat_output = Conv2D(128, (1,1), padding='same')(feat_output)
-        # feat_output = Conv2D(256, (1,1), padding='same')(feat_output)
-        # feat_output = Conv2D(512, (1,1), padding='same')(feat_output)
-        # feat_output = Conv2D(1024, (1,1), padding='same', name='feat_output')(feat_output)
+        x = TimeDistributed(Dense(4))(x)
+        x = Add()([x, bbox_inputs])
+        output = TimeDistributed(Dense(4, activation='sigmoid'))(x)
 
         # self.model = Model(inputs, output)
-        self.model = Model([inputs, bbox_inputs], [feat_output, bbox_output])
+        self.model = Model([inputs, bbox_inputs], output)
 
         # print a summary of the whole model
         self.model.summary()
@@ -245,7 +218,6 @@ class ROLO(object):
             features = np.array(features)
             np.save(features_path + '.npy', features)
 
-
     def coord_loss(self, y_true, y_pred):
         y_true *= 50
         y_pred *= 50
@@ -280,6 +252,144 @@ class ROLO(object):
 
         return loss
 
+        loss_score  = tf.reduce_sum(tf.square(y_true - y_pred))
+
+        return loss_score
+
+        mask_shape = tf.shape(y_true)[:4]
+        
+        cell_x = tf.to_float(tf.reshape(tf.tile(tf.range(self.grid_w), [self.grid_h]), (1, self.grid_h, self.grid_w, 1, 1)))
+        cell_y = tf.transpose(cell_x, (0,2,1,3,4))
+
+        cell_grid = tf.tile(tf.concat([cell_x,cell_y], -1), [self.batch_size, 1, 1, 5, 1])
+        
+        coord_mask = tf.zeros(mask_shape)
+        conf_mask  = tf.zeros(mask_shape)
+        tconf_mask  = tf.zeros(mask_shape)
+        class_mask = tf.zeros(mask_shape)
+        
+        seen = tf.Variable(0.)
+        total_recall = tf.Variable(0.)
+        
+        """
+        Adjust prediction
+        """
+        ### adjust x and y      
+        pred_box_xy = tf.sigmoid(y_pred[..., :2]) + cell_grid
+        
+        ### adjust w and h
+        pred_box_wh = tf.exp(y_pred[..., 2:4]) * np.reshape(self.anchors, [1,1,1,self.nb_box,2])
+        
+        ### adjust confidence
+        pred_box_conf = tf.sigmoid(y_pred[..., 4])
+
+        ### adjust track confidence
+        pred_box_tconf = tf.sigmoid(y_pred[..., 5])        
+        
+        ### adjust class probabilities
+        pred_box_class = y_pred[..., 6:]
+        
+        """
+        Adjust ground truth
+        """
+        ### adjust x and y
+        true_box_xy = y_true[..., 0:2] # relative position to the containing cell
+        
+        ### adjust w and h
+        true_box_wh = y_true[..., 2:4] # number of cells accross, horizontally and vertically
+        
+        ### adjust confidence
+        true_wh_half = true_box_wh / 2.
+        true_mins    = true_box_xy - true_wh_half
+        true_maxes   = true_box_xy + true_wh_half
+        
+        pred_wh_half = pred_box_wh / 2.
+        pred_mins    = pred_box_xy - pred_wh_half
+        pred_maxes   = pred_box_xy + pred_wh_half       
+        
+        intersect_mins  = tf.maximum(pred_mins,  true_mins)
+        intersect_maxes = tf.minimum(pred_maxes, true_maxes)
+        intersect_wh    = tf.maximum(intersect_maxes - intersect_mins, 0.)
+        intersect_areas = intersect_wh[..., 0] * intersect_wh[..., 1]
+        
+        true_areas = true_box_wh[..., 0] * true_box_wh[..., 1]
+        pred_areas = pred_box_wh[..., 0] * pred_box_wh[..., 1]
+
+        union_areas = pred_areas + true_areas - intersect_areas
+        iou_scores  = tf.truediv(intersect_areas, union_areas)
+        
+        true_box_conf = iou_scores * y_true[..., 4]
+
+        true_box_tconf = y_true[..., 5]
+        
+        ### adjust class probabilities
+        true_box_class = tf.argmax(y_true[..., 6:], -1)
+        
+        """
+        Determine the masks
+        """
+        ### coordinate mask: simply the position of the ground truth boxes (the predictors)
+        coord_mask = tf.expand_dims(y_true[..., 4], axis=-1) * self.coord_scale
+        
+        ### confidence mask: penelize predictors + penalize boxes with low IOU
+        # penalize the confidence of the boxes, which have IOU with some ground truth box < 0.6
+        true_xy = self.true_boxes[..., 0:2]
+        true_wh = self.true_boxes[..., 2:4]
+        
+        true_wh_half = true_wh / 2.
+        true_mins    = true_xy - true_wh_half
+        true_maxes   = true_xy + true_wh_half
+        
+        pred_xy = tf.expand_dims(pred_box_xy, 4)
+        pred_wh = tf.expand_dims(pred_box_wh, 4)
+        
+        pred_wh_half = pred_wh / 2.
+        pred_mins    = pred_xy - pred_wh_half
+        pred_maxes   = pred_xy + pred_wh_half    
+        
+        intersect_mins  = tf.maximum(pred_mins,  true_mins)
+        intersect_maxes = tf.minimum(pred_maxes, true_maxes)
+        intersect_wh    = tf.maximum(intersect_maxes - intersect_mins, 0.)
+        intersect_areas = intersect_wh[..., 0] * intersect_wh[..., 1]
+        
+        true_areas = true_wh[..., 0] * true_wh[..., 1]
+        pred_areas = pred_wh[..., 0] * pred_wh[..., 1]
+
+        union_areas = pred_areas + true_areas - intersect_areas
+        iou_scores  = tf.truediv(intersect_areas, union_areas)
+
+        best_ious = tf.reduce_max(iou_scores, axis=4)
+        conf_mask = conf_mask + tf.to_float(best_ious < 0.6) * (1 - y_true[..., 4]) * self.no_object_scale
+        
+        # penalize the confidence of the boxes, which are reponsible for corresponding ground truth box
+        conf_mask = conf_mask + y_true[..., 4] * self.object_scale
+
+        ### class mask: simply the position of the ground truth boxes (the predictors)
+        class_mask = y_true[..., 4] * tf.gather(self.class_wt, true_box_class) * self.class_scale       
+
+        # penalize the track confidence of the boxes, which are reponsible for corresponding ground truth box
+        tconf_mask = tconf_mask + tf.to_float(best_ious < 0.6) * (1 - y_true[..., 5]) * self.no_object_scale
+        # penalize the track confidence of the boxes, which are reponsible for corresponding ground truth box
+        tconf_mask = tconf_mask + y_true[..., 5] * self.object_scale
+
+        """
+        Finalize the loss
+        """
+        nb_coord_box = tf.reduce_sum(tf.to_float(coord_mask > 0.0))
+        nb_conf_box  = tf.reduce_sum(tf.to_float(conf_mask  > 0.0))
+        nb_class_box = tf.reduce_sum(tf.to_float(class_mask > 0.0))
+        
+        loss_xy    = tf.reduce_sum(tf.square(true_box_xy-pred_box_xy)     * coord_mask) / (nb_coord_box + 1e-6) / 2.
+        loss_wh    = tf.reduce_sum(tf.square(true_box_wh-pred_box_wh)     * coord_mask) / (nb_coord_box + 1e-6) / 2.
+        loss_conf  = tf.reduce_sum(tf.square(true_box_conf-pred_box_conf) * conf_mask)  / (nb_conf_box  + 1e-6) / 2.
+        loss_tconf  = tf.reduce_sum(tf.square(true_box_tconf-pred_box_tconf) * tconf_mask) / 2.
+        loss_class = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=true_box_class, logits=pred_box_class)
+        loss_class = tf.reduce_sum(loss_class * class_mask) / (nb_class_box + 1e-6)
+        
+        loss = loss_xy + loss_wh + loss_conf + loss_tconf + loss_class
+
+        return loss
+
     def train(self, 
               data_folder,
               train_times,
@@ -288,6 +398,11 @@ class ROLO(object):
               learning_rate,
               saved_weights_name
             ):
+
+        self.object_scale    = self.yolo_config['train']['object_scale']
+        self.no_object_scale = self.yolo_config['train']['no_object_scale']
+        self.coord_scale     = self.yolo_config['train']['coord_scale']
+        self.class_scale     = self.yolo_config['train']['class_scale']
 
         data = {
             'data_folder': data_folder,
@@ -320,8 +435,9 @@ class ROLO(object):
 
         optimizer = Adam(lr=learning_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
         # self.model.compile(loss=self.custom_loss, optimizer=optimizer)
-        # self.model.compile(loss=self.custom_loss2, optimizer=optimizer)
-        self.model.compile(loss={'feat_output': self.feat_loss, 'bbox_output': self.coord_loss}, loss_weights=[1., 1.], optimizer=optimizer)
+        self.model.compile(loss=self.coord_loss, optimizer=optimizer)
+        # self.model.compile(loss={'feat_output': self.feat_loss, 'bbox_output': self.coord_loss}, loss_weights=[1., 1.], optimizer=optimizer)
+        # self.model.compile(loss={'bbox_score_output': self.bbox_score_loss, 'output': self.custom_loss}, loss_weights=[1., 1.], optimizer=optimizer)
         # self.model.compile(loss='mse', optimizer=optimizer)
 
         ############################################
@@ -331,7 +447,12 @@ class ROLO(object):
         generator_config = {
             'INPUT_SIZE'      : self.input_size, 
             'BATCH_SIZE'      : self.batch_size,
-            'TIME_STEP'       : self.time_step
+            'TIME_STEP'       : self.time_step,
+            'GRID_H'          : 13,  
+            'GRID_W'          : 13,
+            'BOX'             : 5,
+            'CLASS'           : 1,
+            'ANCHORS'         : self.anchors
         }
 
         train_batch = BatchGenerator(data['train'],
@@ -375,8 +496,8 @@ class ROLO(object):
                                  validation_data  = valid_batch,
                                  validation_steps = len(valid_batch) * valid_times,
                                  callbacks        = [early_stop, checkpoint, tensorboard],  #TODO
-                                 workers          = 3,   #TODO
-                                 use_multiprocessing = True     #TODO
+                                 workers          = 1,   #TODO
+                                 use_multiprocessing = False     #TODO
                                 )
     
 
@@ -457,7 +578,7 @@ class ROLO(object):
                 start_time = time.time()
                 # Prediction by ROLO
                 # bbox = self.model.predict([feature_input, bbox_input])[0, self.time_step - 1]
-                dummy_feat, predict_bbox = self.model.predict([feature_input, bbox_input])
+                predict_bbox = self.model.predict([feature_input, bbox_input])
                 end_time = time.time()
                 print("ROLO predict time: {} sec per image.".format(end_time-start_time))
 
@@ -467,8 +588,12 @@ class ROLO(object):
                 detected_box = denormalize_box(frame.shape, chosen_box)
                 frame = draw_box(frame, detected_box, color=(255,0,0))
                 print("Detected box: [ {:.2f}  {:.2f}  {:.2f}  {:.2f} ]".format(detected_box[0], detected_box[1], detected_box[2], detected_box[3]))
-
-                bbox = predict_bbox[0, ...]
+                
+                if i < self.time_step:
+                    bbox = predict_bbox[0, i, ...]
+                else:
+                    bbox = predict_bbox[0, -1, ...]
+                
                 # Denormalize box
                 bbox[0] *= frame.shape[1]
                 bbox[1] *= frame.shape[0]
@@ -486,6 +611,9 @@ class ROLO(object):
             # cv2.imshow('video', frame)
             # cv2.waitKey(0)
             cv2.imwrite('output/' + str(i) + '.jpg', frame)
+
+            if i >= 100:
+                break
         
         print("Tracking speed: {:.3f} FPS".format((len(frame_path_list) - 1) / tracking_time))
 

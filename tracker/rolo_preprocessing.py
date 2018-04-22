@@ -134,12 +134,14 @@ class BatchGenerator(Sequence):
         self.detected_label_namelist = detected_label_namelist
         self.features_namelist = features_namelist
 
+        self.anchors = [ [0, 0, config['ANCHORS'][2*i], config['ANCHORS'][2*i+1]] for i in range(int(len(config['ANCHORS'])//2))]
+
         self.num_images = len(annotations) * 500  # Guess the total number of images in the dataset #TODO
 
     def __len__(self):
         return int(np.ceil(float(self.num_images) / self.config['BATCH_SIZE']))
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx):        
         # 1. Random select a video
         # 2. slice the video frames into batches and select one batch([l_bound, r_bound])
         selected_video_num = np.random.random_integers(0, len(self.annotations)-1)
@@ -175,12 +177,13 @@ class BatchGenerator(Sequence):
             # print("r_bound:", r_bound)
             # print("#frame:", num_frames)
             # print('#batch:', num_batch)
-        
 
         detections = np.load(self.detected_label_namelist[selected_video_num])
         features = np.load(self.features_namelist[selected_video_num])
 
         # TODO
+        ''' x_center, y_center, w, h (normalized)
+        '''
         labels[:, 0] = (labels[:, 0] + labels[:, 2] / 2.0) / 1280
         labels[:, 1] = (labels[:, 1] + labels[:, 3] / 2.0) / 720
         labels[:, 2] = labels[:, 2] / 1280
@@ -191,11 +194,17 @@ class BatchGenerator(Sequence):
             x_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], 
                                 self.config['INPUT_SIZE'][0], self.config['INPUT_SIZE'][1], self.config['INPUT_SIZE'][2]))
             bbox_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], 4))
-            y_batch = np.zeros((self.config['BATCH_SIZE'], 4))
-            feat_batch = np.zeros((self.config['BATCH_SIZE'], self.config['INPUT_SIZE'][0], self.config['INPUT_SIZE'][1], self.config['INPUT_SIZE'][2]))
+            # detection_batch = np.zeros((self.config['BATCH_SIZE'], self.config['GRID_H'],  self.config['GRID_W'], self.config['BOX'], 4+1+self.config['CLASS']+1))
+            # b_batch = np.zeros((self.config['BATCH_SIZE'], 1, 1, 1, 1, 4))   # list of self.config['TRUE_self.config['BOX']_BUFFER'] GT boxes
+            
+            # feat_batch = np.zeros((self.config['BATCH_SIZE'], self.config['INPUT_SIZE'][0], self.config['INPUT_SIZE'][1], self.config['INPUT_SIZE'][2]))
+            y_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], 4))
+            # y_batch = np.zeros((self.config['BATCH_SIZE'], self.config['GRID_H'],  self.config['GRID_W'], self.config['BOX'], 4+1+self.config['CLASS']+1))
+            # bbox_score_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], self.config['INPUT_SIZE'][0], self.config['INPUT_SIZE'][1], 1))
         else:
             x_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], self.config['INPUT_SIZE']))
             y_batch = np.zeros((self.config['BATCH_SIZE'], self.config['TIME_STEP'], 4))
+
 
         instance_count = 0        
         for i in range(l_bound,r_bound):
@@ -203,7 +212,7 @@ class BatchGenerator(Sequence):
             for j in range(self.config['TIME_STEP']):
                 detection = detections[i+j, ...]
                 feature = features[i+j, ...]
-                # label = labels[i+j, ...]
+                label = labels[i+j, ...]
                 # print("Detection shape:", detection.shape)
                 # print("Feature shape:", feature.shape)
                 # print("Detection:", detection)
@@ -212,7 +221,7 @@ class BatchGenerator(Sequence):
                 # inputs = feature
                 # print("Input shape:", inputs.shape)
 
-                x_batch[instance_count, j, :] = feature
+                x_batch[instance_count, j, ...] = feature
 
                 if isNAN(detection):
                     # When no detection results in some frame, use the initial box plus some Gaussian random normals as detection results
@@ -224,8 +233,8 @@ class BatchGenerator(Sequence):
                             tmp = value + np.random_normal(0, 0.5)
                         value = tmp
                 bbox_batch[instance_count, j, :] = detection
-
-                # y_batch[instance_count, j, :] = label
+                y_batch[instance_count, j, :] = label
+                
                 if j == self.config['TIME_STEP'] - 1:
                     # detection = detections[i+j, ...]
                     # if isNAN(detection):
@@ -238,16 +247,19 @@ class BatchGenerator(Sequence):
                         # print(detection)
                         
                     # bbox_batch[instance_count, :] = detection
-                    label = labels[i+j, ...]
+                    # label = labels[i+j, ...]
+
                     if isNAN(label):
                         raise ValueError("Label is nan!")
                     for value in label:
                         if value < 0:
                             print(label)
                             raise ValueError("Label value should > 0")
-                    # print(label)
-                    y_batch[instance_count, :] = label
-                    feat_batch[instance_count, ...] = feature
+                    # feat_batch[instance_count, ...] = feature
+                    # y_batch[instance_count, :] = label
+
+                    # find the anchor that best predicts this box
+
                 # print("Label:", label)
 
             instance_count += 1
@@ -255,12 +267,12 @@ class BatchGenerator(Sequence):
         if isNAN(x_batch):
             raise ValueError("X batch NAN!!!!!!!!!!!!!1")
         
-        if isNAN(bbox_batch):
-            raise ValueError("BBOX batch NAN!!!!!!!!!!!!!1")
+        # if isNAN(bbox_batch):
+            # raise ValueError("BBOX batch NAN!!!!!!!!!!!!!1")
 
         # print ' new batch created', idx
         # print(feat_batch.shape)
-        return [x_batch, bbox_batch], [feat_batch, y_batch]
+        return [x_batch, bbox_batch], y_batch
     
     def on_epoch_end(self):
         if self.shuffle: np.random.shuffle(self.images)

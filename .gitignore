@@ -6,5 +6,8 @@
 *.MOV
 *.h5
 *.weights
+*.txt
 *checkpoints*
 *logs*
+*try.py
+/det_mot*

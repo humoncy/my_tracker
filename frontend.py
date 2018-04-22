@@ -250,12 +250,12 @@ class YOLO(object):
         input_image = image[:,:,::-1]  # rgb to bgr
         input_image = np.expand_dims(input_image, 0)
         dummy_array = dummy_array = np.zeros((1,1,1,1,self.max_box_per_image,4))
-        print(input_image.shape)
-        print(dummy_array.shape)
+        # print(input_image.shape)
+        # print(dummy_array.shape)
 
         netout = self.model.predict([input_image, dummy_array])[0]
 
-        print(netout.shape)
+        # print(netout.shape)
 
         boxes  = self.decode_netout(netout)
 
@@ -264,7 +264,7 @@ class YOLO(object):
         get_darknet_output = K.function([self.model.layers[0].input, K.learning_phase()],
                                         [self.model.layers[1].get_output_at(-1)])
         layer_output = get_darknet_output([input_image, 0])[0]
-        print(layer_output.shape)
+        # print(layer_output.shape)
 
         return boxes
 
@@ -286,7 +286,10 @@ class YOLO(object):
         # print("YOLO predict time: {} sec per image.".format(end_time-start_time))
         # print("YOLO network output shape:", netout.shape)
 
-        boxes  = self.decode_netout(netout)
+        start_time = time.time()
+        boxes  = self.decode_netout(netout, obj_threshold=0.3, nms_threshold=0.3)
+        end_time = time.time()
+        # print("YOLO decode time: {} sec per image.".format(end_time-start_time))
 
         # Extract feature map out of darknet
         from keras import backend as K
@@ -342,6 +345,8 @@ class YOLO(object):
         netout[..., 5:] = netout[..., 4][..., np.newaxis] * self.softmax(netout[..., 5:])
         netout[..., 5:] *= netout[..., 5:] > obj_threshold
         
+        # start_time = time.time()
+        
         for row in range(grid_h):
             for col in range(grid_w):
                 for b in range(nb_box):
@@ -361,7 +366,9 @@ class YOLO(object):
                         box = BoundBox(x, y, w, h, confidence, classes)
                         
                         boxes.append(box)
-
+        # end_time = time.time()
+        # print("YOLO find time: {} sec per image.".format(end_time-start_time))
+        
         # suppress non-maximal boxes
         for c in range(self.nb_class):
             sorted_indices = list(reversed(np.argsort([box.classes[c] for box in boxes])))
@@ -490,5 +497,5 @@ class YOLO(object):
                                  validation_data  = valid_batch,
                                  validation_steps = len(valid_batch) * valid_times,
                                  callbacks        = [early_stop, checkpoint, tensorboard], 
-                                 workers          = 3,
+                                 workers          = 1,
                                  max_queue_size   = 8)
