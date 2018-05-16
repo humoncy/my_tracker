@@ -225,7 +225,6 @@ class Sort(object):
         d = matched[np.where(matched[:,1]==t)[0], 0]
         trk.update(dets[d,:][0])
 
-    # print(len(unmatched_dets))
     # Create and initialise new trackers for unmatched detections
     for i in unmatched_dets:
         trk = KalmanBoxTracker(dets[i,:])
@@ -241,8 +240,6 @@ class Sort(object):
         # Remove dead tracklet
         if (trk.time_since_update > self.max_age):
           self.trackers.pop(i)
-
-    # print(len(self.trackers))
 
     if(len(ret)>0):
       return np.concatenate(ret)
@@ -281,7 +278,8 @@ if __name__ == '__main__':
       'image_folder': '/home/peng/data/sort_data/images/',
       'annot_folder': '/home/peng/data/sort_data/annotations/',
       'detected_folder': '/home/peng/data/sort_data/detected/',
-      'sort_det_folder': '/home/peng/data/sort_data/mot_detected/'
+      #'sort_det_folder': '/home/peng/data/sort_data/mot_detected/'
+      'sort_det_folder': '/home/peng/darknet/det_mot/'
     }
   }
   annots, videos, detections = get_data_lists(data['sort'], MOT=True)
@@ -304,36 +302,34 @@ if __name__ == '__main__':
     seq_dets = np.loadtxt(det, delimiter=',') # load detections
     video_name = splitext(basename(det))[0]
 
-    # if video_name != "person23":
-        # continue
-    
-    # with open('output/' + video_name + '.txt', 'w') as out_file:
-    #   print("Processing %s." % video_name)
-    #   for frame in range(int(seq_dets[:,0].max())):
-    #     frame += 1 # detection and frame numbers begin at 1
+    with open('output/' + video_name + '.txt', 'w') as out_file:
+      print("Processing %s." % video_name)
+      for frame in range(int(seq_dets[:,0].max())):
+        frame += 1 # detection and frame numbers begin at 1
 
-    #     # print("\n------------ {}th frmae start ---------------\n".format(frame))
+        # print("\n------------ {}th frmae start ---------------\n".format(frame))
 
-    #     dets = seq_dets[seq_dets[:,0]==frame, 2:7]  # [x1,y1,x2,y2,score]
-    #     dets[:,2:4] += dets[:,0:2] # convert to [x1,y1,w,h] to [x1,y1,x2,y2]
-    #     total_frames += 1
+        dets = seq_dets[seq_dets[:,0]==frame, 2:7]  # [x1,y1,x2,y2,score]
+        dets[:,2:4] += dets[:,0:2] # convert to [x1,y1,w,h] to [x1,y1,x2,y2]
+        total_frames += 1
 
-    #     start_time = time.time()
-    #     trackers = mot_tracker.update(dets)
-    #     cycle_time = time.time() - start_time
-    #     total_time += cycle_time
+        start_time = time.time()
+        trackers = mot_tracker.update(dets)
+        cycle_time = time.time() - start_time
+        total_time += cycle_time
 
-    #     for d in trackers:
-    #       print('%d,%d,%.2f,%.2f,%.2f,%.2f,1,-1,-1,-1' % (frame, d[4] ,d[0] ,d[1], d[2]-d[0], d[3]-d[1]), file=out_file)
+        for d in trackers:
+          print('%d,%d,%.2f,%.2f,%.2f,%.2f,1,-1,-1,-1' % (frame, d[4] ,d[0] ,d[1], d[2]-d[0], d[3]-d[1]), file=out_file)
 
-    #     # print("\n------------ {}th frmae done ---------------".format(frame))
-    #     # if frame == 2:
-    #     #   # print(trackers.shape)
-    #     #   exit()
+        # print("\n------------ {}th frmae done ---------------".format(frame))
+        # if frame == 2:
+        #   # print(trackers.shape)
+        #   exit()
         
     outputs += [os.getcwd() + '/output/' + video_name + '.txt']
+    KalmanBoxTracker.count = 0
 
-  # print("Total Tracking took: %.3f for %d frames or %.1f FPS"%(total_time,total_frames,total_frames/total_time))
+  print("Total Tracking took: %.3f for %d frames or %.1f FPS"%(total_time,total_frames,total_frames/total_time))
   
   if evaluate:
     print()
@@ -342,9 +338,9 @@ if __name__ == '__main__':
     print("Total average IOU = {}".format(total_avg_iou))
     print("Total average lost track = {}".format(total_avg_lost))
 
-    # print("========================= Tracking by YOLO only ===============================")
-    # total_avg_iou, total_avg_lost = evaluation.average_IOU(annots, detections)
-    # print("Total average IOU = {}".format(total_avg_iou))
-    # print("Total average lost track = {}".format(total_avg_lost))
+    print("========================= Tracking by YOLO only ===============================")
+    total_avg_iou, total_avg_lost = evaluation.average_IOU(annots, detections)
+    print("Total average IOU = {}".format(total_avg_iou))
+    print("Total average lost track = {}".format(total_avg_lost))
 
-    # evaluation.success_plot_auc(ann=annots, tra=outputs, det=detections)
+    evaluation.success_plot_auc(ann=annots, tra=outputs, det=detections)

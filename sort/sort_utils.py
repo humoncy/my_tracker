@@ -127,7 +127,7 @@ def change_box_format(det_file, sort_det_folder, video_name):
     return output_filepath
 
 def detect_videos(annotations_list, video_folders_list, detected_folder):
-    """ Detect videos by YOLO, andt store the detected bounding boxes and feature maps
+    """ Detect videos by YOLO, and store the detected bounding boxes
     """
     yolo_config_path = "../config_aerial.json"
     with open(yolo_config_path) as config_buffer:    

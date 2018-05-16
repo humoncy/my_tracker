@@ -122,14 +122,14 @@ def check_data(data_dir, annot_path, det_path, sort_result_path=None, format=Non
                             (255,0,0), 3)
                         print(mot_format[index, 2:6])
             # Track result
-            index_list = np.argwhere(sort_result[:, 0] == (i+1))
-            if index_list.shape[0] != 0:
-                for index in index_list[:, 0]:
-                    cv2.rectangle(image, 
-                        (int(sort_result[index, 2]),int(sort_result[index, 3])), 
-                        (int(sort_result[index, 4]),int(sort_result[index, 5])), 
-                        (0,255,0), 3)
-                    print(sort_result[index, 2:6])
+            # index_list = np.argwhere(sort_result[:, 0] == (i+1))
+            # if index_list.shape[0] != 0:
+            #     for index in index_list[:, 0]:
+            #         cv2.rectangle(image, 
+            #             (int(sort_result[index, 2]),int(sort_result[index, 3])), 
+            #             (int(sort_result[index, 4]),int(sort_result[index, 5])), 
+            #             (0,255,0), 3)
+            #         print(sort_result[index, 2:6])
         else:
             cv2.rectangle(image, 
                 (int(bboxes[i][0]),int(bboxes[i][1])), 
@@ -183,10 +183,10 @@ if __name__ == '__main__':
     # annot_path = '/home/peng/data/rolo_data/detected/train/person1.npy'
     # check_data(data_dir, annot_path ,format='YOLO')
 
-    data_dir   = '/home/peng/data/sort_data/images/person4_1/'
-    annot_path = '/home/peng/data/sort_data/annotations/person4_1.txt'
-    det_path   = '/home/peng/basic-yolo-keras/det_mot/person4_1.txt'
-    sort_result= '/home/peng/basic-yolo-keras/sort/output/person4_1.txt'
+    data_dir   = '/home/peng/data/sort_data/images/person23/'
+    annot_path = '/home/peng/data/sort_data/annotations/person23.txt'
+    det_path   = '/home/peng/darknet/det_mot/person23.txt'
+    sort_result= '/home/peng/basic-yolo-keras/sort/output/person23.txt'
     check_data(data_dir, annot_path, det_path, sort_result_path=sort_result, format='MOT_FORMAT')
 
     # data_dir   = '/home/peng/data/sort_data/images/person22/'

@@ -256,15 +256,10 @@ class YOLO(object):
         netout = self.model.predict([input_image, dummy_array])[0]
 
         # print(netout.shape)
-
+        # st = time.time()
         boxes  = self.decode_netout(netout)
-
-        # Extract feature map out of darknet
-        from keras import backend as K
-        get_darknet_output = K.function([self.model.layers[0].input, K.learning_phase()],
-                                        [self.model.layers[1].get_output_at(-1)])
-        layer_output = get_darknet_output([input_image, 0])[0]
-        # print(layer_output.shape)
+        # et = time.time()
+        # print(et-st)
 
         return boxes
 
